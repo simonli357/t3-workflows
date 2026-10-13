@@ -43,9 +43,13 @@ try {
   try {await client.connect();environment=(await client.rpc("server.getConfig",{}).promise).environment;}
   catch(error){environment={unavailable:error.message};}
   finally{await client.close();}
+  const remoteEnvironments = (cfg.remoteEnvironments ?? []).map((remote) => {
+    try { return { label: remote.label, observedAt: new Date().toISOString(), environment: JSON.parse(run("ssh", ["-o", "BatchMode=yes", "-o", "ConnectTimeout=10", remote.ssh, remote.command])) }; }
+    catch (error) { return { label: remote.label, observedAt: new Date().toISOString(), unavailable: error.message }; }
+  });
   const pick=r=>({tag:r.tag_name,publishedAt:r.published_at,url:r.html_url,notes:r.body});
   const input={checkedAt:new Date().toISOString(),upstreamHead:head,previouslyReviewed:base,sourceCheckout:root,configuredBuildRef:deployedRef,configuredBuildCommit:deployed,
-    localEnvironment:environment,otherDeployments:cfg.otherDeployments??[],customizations:ledger,
+    localEnvironment:environment,remoteEnvironments,otherDeployments:cfg.otherDeployments??[],customizations:ledger,
     stable:pick(latestStable),nightlies:releases.filter(r=>r.tag_name.includes("nightly.")).slice(0,5).map(pick),
     changes:commits.map(c=>({...c,patchEquivalentInBuild:equivalent.has(c.sha)})),
     cautions:["Configured build commit is not proof of the deployed binary commit; compare the observed live version with installation records.","Git patch equivalence misses adaptations and squash commits; inspect the customization ledger and code.","Offline machines and the installed phone app version remain unverified unless independently observed."]};
