@@ -10,7 +10,7 @@
     "t3w": "bin/t3w.mjs"
   },
   "scripts": {
-    "test": "node bin/test.mjs",
+    "test": "node bin/run-checks.mjs",
     "install-skills": "node bin/install.mjs"
   }
 }

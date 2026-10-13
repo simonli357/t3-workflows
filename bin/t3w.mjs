@@ -15,7 +15,7 @@ try {
     const dirty = spawnSync("git", ["status", "--porcelain"], {cwd:root,encoding:"utf8"});
     if (dirty.status !== 0 || dirty.stdout.trim()) throw new Error("Commit or resolve local package changes before updating.");
     run("git", ["pull", "--ff-only"]);
-    run(process.execPath, [fileURLToPath(new URL("./test.mjs", import.meta.url))]);
+    run(process.execPath, [fileURLToPath(new URL("./run-checks.mjs", import.meta.url))]);
     run(process.execPath, [fileURLToPath(new URL("./install.mjs", import.meta.url))]);
   } else if (routes[command]) {
     const r = spawnSync(process.execPath, [fileURLToPath(new URL(routes[command], import.meta.url)), ...(command === "doctor" ? ["--check"] : []), ...args], { stdio: "inherit" });
