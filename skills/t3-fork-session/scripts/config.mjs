@@ -4,7 +4,7 @@ import { homedir } from "node:os";
 import path from "node:path";
 
 export const configPath = process.env.T3_WORKFLOWS_CONFIG ?? path.join(homedir(), ".config", "t3-workflows", "config.json");
-export const settings = existsSync(configPath) ? JSON.parse(readFileSync(configPath, "utf8")) : {};
+export const settings = existsSync(configPath) ? JSON.parse(readFileSync(configPath, "utf8").replace(/^\uFEFF/, "")) : {};
 const defaults = JSON.parse(readFileSync(new URL("../references/accounts.json", import.meta.url), "utf8"));
 export const accounts = Object.fromEntries(Object.entries({ ...defaults.accounts, ...settings.accounts }).filter(([key, value]) => value && (!settings.enabledAccounts || settings.enabledAccounts.includes(key))));
 export const models = { ...defaults.models, ...settings.models };
