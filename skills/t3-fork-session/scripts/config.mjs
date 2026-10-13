@@ -9,9 +9,10 @@ const defaults = JSON.parse(readFileSync(new URL("../references/accounts.json", 
 export const accounts = Object.fromEntries(Object.entries({ ...defaults.accounts, ...settings.accounts }).filter(([key, value]) => value && (!settings.enabledAccounts || settings.enabledAccounts.includes(key))));
 export const models = { ...defaults.models, ...settings.models };
 export const expandPath = (value) => value === "~" ? homedir() : value.startsWith("~/") ? path.join(homedir(), value.slice(2)) : path.resolve(value);
-const canonical = (value) => { const p = expandPath(value); return existsSync(p) ? realpathSync(p) : p; };
+const canonical = (value) => { const p = expandPath(value); return existsSync(p) ? realpathSync.native(p) : p; };
+const samePath = (a, b) => process.platform === "win32" ? canonical(a).toLowerCase() === canonical(b).toLowerCase() : canonical(a) === canonical(b);
 export function projectProfile(project) {
-  return Object.entries(settings.projects ?? {}).find(([key, p]) => key === project || (p.baseProject && canonical(p.baseProject) === canonical(project)))?.[1];
+  return Object.entries(settings.projects ?? {}).find(([key, p]) => key === project || (p.baseProject && samePath(p.baseProject, project)))?.[1];
 }
 export function resolveProject(explicit, cwd = process.cwd(), config = settings) {
   let selected = explicit ?? process.env.T3_WORKFLOWS_PROJECT;
@@ -20,7 +21,7 @@ export function resolveProject(explicit, cwd = process.cwd(), config = settings)
   let root;
   try { root = path.dirname(execFileSync("git", ["-C", cwd, "rev-parse", "--path-format=absolute", "--git-common-dir"], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim()); }
   catch { root = canonical(cwd); }
-  const matches = Object.values(config.projects ?? {}).filter((p) => [p.baseProject, ...(p.repositories ?? [])].some((r) => r && canonical(r) === canonical(root)));
+  const matches = Object.values(config.projects ?? {}).filter((p) => [p.baseProject, ...(p.repositories ?? [])].some((r) => r && samePath(r, root)));
   if (matches.length > 1) throw new Error("Multiple workflow profiles match this checkout; specify --project PROFILE_OR_PATH.");
   if (matches.length === 1) return canonical(matches[0].baseProject);
   if (existsSync(path.join(root, ".git"))) return canonical(root);

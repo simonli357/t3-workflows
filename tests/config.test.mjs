@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {execFileSync} from 'node:child_process';
-import {mkdtempSync,mkdirSync,rmSync,writeFileSync} from 'node:fs';
+import {mkdtempSync,mkdirSync,rmSync,writeFileSync,realpathSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import path from 'node:path';
 import {resolveProject} from '../skills/t3-fork-session/scripts/config.mjs';
@@ -16,7 +16,7 @@ test('global project resolution uses current checkout/worktree and explicit prof
   const config={projects:{group:{repositories:[repo],baseProject:path.join(dir,'bases')}}};
   assert.equal(resolveProject(undefined,worktree,config),path.join(dir,'bases'));
   assert.equal(resolveProject('group',dir,config),path.join(dir,'bases'));
-  assert.equal(resolveProject(undefined,worktree,{}),repo);
+  assert.equal(resolveProject(undefined,worktree,{}),realpathSync.native(repo));
   assert.throws(()=>resolveProject(undefined,dir,{}),/No project resolved/);
  }finally{rmSync(dir,{recursive:true,force:true});}
 });
