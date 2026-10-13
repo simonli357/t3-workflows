@@ -179,10 +179,11 @@ would take too long.
 
 Include this instruction in every worker's initial assignment:
 
-> Report to the master session only when done or blocked.
-> Before reporting a blocker, check whether you truly cannot proceed or just
-> need to investigate, wait, or try another approach within your authority.
-> Resolve what you can yourself; report only genuine blockers.
+> Use `t3_worker_report` to report to the master only when done or genuinely
+> blocked. Pass `outcome: "done"` or `"blocked"`, a concise evidence summary,
+> and a stable `clientRequestId` for retries. Before reporting a blocker,
+> investigate, wait, or try another approach within your authority; resolve
+> what you can yourself. Progress stays in this worker conversation.
 
 Masters must not use worker messages as a chat:
 
@@ -202,22 +203,25 @@ Masters must not use worker messages as a chat:
   turn while workers run. Answer a user's explicit status request from available
   progress without prompting every worker to reply.
 
-These instructions govern agent behavior; the skill does not filter server
-notifications. Every final worker turn can generate a report. An input request
-may require an answer in the worker's T3 conversation; never autoapprove it.
+A final answer or ended turn alone does not notify the master. Explicit reports
+are durable and wait for the worker's current turn to end; `done` also waits for
+background work. Provider failures and requests for input still notify
+automatically, labeled as runtime events rather than completed assignments.
+Never autoapprove an input/approval request.
 
-A plain restart of the T3 server ends every running turn: each worker goes to
-`error` with "Provider session did not survive a server restart". Resume each one
-with `t3_worker_send`, naming where it left off and asking it to check for
-processes the restart killed. An update through T3's own `server.updateServer`
-marks running sessions first and continues them after the restart.
+After a server restart, inspect current state before resuming anything. Automatic
+continuation may already have resumed the same worker. If not, use
+`t3_worker_send` to resume from its checkpoint and check interrupted processes;
+do not duplicate a queued or running recovery.
 
 ## Master review and disposition
 
 On a completion or blocker report, read the worker's output and inspect the
 relevant artifacts, changes, and verification evidence against the assigned
 acceptance criteria. A report excerpt or `completed` state alone is insufficient.
-Then act within the user's existing authorization:
+Then act within the user's existing authorization. Give the user a brief,
+evidence-based disposition; do not end with an empty response. Do not send an
+acknowledgment to the worker.
 
 - **Accepted:** if the assignment is verified, no assigned work remains, and the
   worker has no running turn, queued assignments, or unfinished background work,
