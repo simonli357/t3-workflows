@@ -1,0 +1,44 @@
+{
+  "connection": {
+    "server": "http://127.0.0.1:3773"
+  },
+  "skillHomes": [
+    "~/.codex",
+    "~/.codex-antoine",
+    "~/.claude",
+    "~/.claude-eol",
+    "~/.claude-xinya"
+  ],
+  "projects": {
+    "scandy": {
+      "baseProject": "~/Videos/scandy/ScandyControl",
+      "repositories": [
+        "~/Videos/scandy/ScandyControl",
+        "~/Videos/scandy/ScandyAutonomy"
+      ],
+      "basePrompt": "understand project",
+      "bases": {
+        "XL": "xl_base",
+        "ES": "es_base",
+        "ARA": "ara_base",
+        "AD": "ad_base",
+        "SL": "sl_base",
+        "DS": "ds_base"
+      },
+      "issuePrefixes": {
+        "ScandyRobotics/ScandyAutonomy": "a",
+        "ScandyRobotics/ScandyControl": "c"
+      },
+      "naming": "lowercase; closest explicit epic prefix, otherwise one relevant keyword; append fixed model suffix; see references/scandy.md"
+    }
+  },
+  "upstream": {
+    "checkout": "~/t3code-custom",
+    "repository": "pingdotgg/t3code",
+    "remote": "upstream",
+    "deployedRef": "custom-stable",
+    "reviewModel": "sol",
+    "otherDeployments": [],
+    "customizationsFile": "~/t3-workflows/customizations.json"
+  }
+}

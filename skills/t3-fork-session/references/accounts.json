@@ -1,0 +1,78 @@
+{
+  "accounts": {
+    "XL": {
+      "instanceId": "claude_xinya",
+      "base": "xl_base",
+      "models": [
+        "opus",
+        "sonnet"
+      ]
+    },
+    "ES": {
+      "instanceId": "claude_eol",
+      "base": "es_base",
+      "models": [
+        "opus",
+        "sonnet"
+      ]
+    },
+    "ARA": {
+      "instanceId": "claudeAgent",
+      "base": "ara_base",
+      "models": [
+        "opus",
+        "sonnet"
+      ]
+    },
+    "AD": {
+      "instanceId": "codex_antoine",
+      "base": "ad_base",
+      "models": [
+        "sol",
+        "astra"
+      ]
+    },
+    "SL": {
+      "instanceId": "codex",
+      "base": "sl_base",
+      "models": [
+        "sol",
+        "astra"
+      ]
+    },
+    "DS": {
+      "instanceId": "deepseek_codex",
+      "base": "ds_base",
+      "models": [
+        "flash"
+      ]
+    }
+  },
+  "models": {
+    "sol": {
+      "slug": "gpt-6.1-sol",
+      "option": "reasoningEffort",
+      "effort": "max"
+    },
+    "astra": {
+      "slug": "gpt-6-astra",
+      "option": "reasoningEffort",
+      "effort": "high"
+    },
+    "opus": {
+      "slug": "claude-opus-5-5",
+      "option": "effort",
+      "effort": "xhigh"
+    },
+    "sonnet": {
+      "slug": "claude-sonnet-5-5",
+      "option": "effort",
+      "effort": "max"
+    },
+    "flash": {
+      "slug": "deepseek-flash",
+      "option": "reasoningEffort",
+      "effort": "max"
+    }
+  }
+}

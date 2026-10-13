@@ -1,0 +1,4 @@
+interface:
+  display_name: "T3 Fork Session"
+  short_description: "Create T3 workers, read results, and send follow-ups"
+  default_prompt: "Use $t3-fork-session to create a T3 worker, honoring my account/model choices and using current capacity to choose any unspecified profile."
