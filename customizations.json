@@ -30,9 +30,10 @@
       "localCommits": [
         "c7d1216c",
         "b0aeba36",
-        "79ba0c50"
+        "79ba0c50",
+        "5cc2e4d38"
       ],
-      "requirement": "Report completed and failed turns including manual-input and provider-switch turns; release reports after accepted steering; retain ownership, deduplicate and honor disabled notifications.",
+      "requirement": "Workers explicitly report assignment done or genuinely blocked through authenticated t3_worker_report; turn endings/progress/restarts alone do not notify. Preserve direct-input ownership, durable deduplicated reports, and disabled notifications. Runtime failures/input requests remain automatic. Masters review latest output/evidence and give an actionable disposition without acknowledgment chatter.",
       "upstreamDisposition": "Audit native/app-owned task reporting separately from custom forked workers."
     },
     {
@@ -174,14 +175,14 @@
   ],
   "deployments": {
     "sliara": {
-      "version": "0.0.45+custom.12",
-      "commit": "64df0bac7",
+      "version": "0.0.45+custom.13",
+      "commit": "5cc2e4d38",
       "status": "active",
-      "runningVersion": "0.0.45+custom.12",
+      "runningVersion": "0.0.45+custom.13",
       "orchestrationProtocolVersion": 1,
-      "timestamp": "2026-10-13T17:39:14.869Z",
+      "timestamp": "2026-10-13T18:47:46.801986+00:00",
       "serviceRestarted": true,
-      "verifiedResumedSessions": 2
+      "verifiedResumedSessions": 9
     },
     "myalien": {
       "runningVersion": "0.0.45+custom.4",
@@ -201,6 +202,12 @@
       "version": "0.0.45+custom.12",
       "feature": "Codex fork helpers receive fresh process scopes; avoid Linux systemd unit collision and preserve source runtime OOM identity",
       "validation": "65 focused tests; regression fails before fix; server typecheck; targeted lint; live SL base and #702 forks succeed with source history/account/model/effort preserved; both active sessions resumed"
+    },
+    {
+      "commit": "5cc2e4d38",
+      "version": "0.0.45+custom.13",
+      "feature": "Explicit done/blocked worker reports and required master review in report prompts and provider runtime context",
+      "validation": "37 focused tests; server typecheck; targeted lint; 9 active sessions resumed unchanged; 704master uses worker list/read and inspects evidence during catch-up review"
     }
   ]
 }
