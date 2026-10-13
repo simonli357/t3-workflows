@@ -3,7 +3,14 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "engines": {"node": ">=22"},
-  "bin": {"t3w": "bin/t3w.mjs"},
-  "scripts": {"test": "node --test tests/*.test.mjs", "install-skills": "node bin/install.mjs"}
+  "engines": {
+    "node": ">=22"
+  },
+  "bin": {
+    "t3w": "bin/t3w.mjs"
+  },
+  "scripts": {
+    "test": "node bin/test.mjs",
+    "install-skills": "node bin/install.mjs"
+  }
 }

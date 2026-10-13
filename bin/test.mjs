@@ -1,0 +1,10 @@
+import { spawnSync } from "node:child_process";
+import { randomUUID } from "node:crypto";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+const env={...process.env,T3_WORKFLOWS_CONFIG:path.join(tmpdir(),`t3w-test-${randomUUID()}.json`)};
+delete env.T3_WORKFLOWS_PROJECT;
+const result=spawnSync(process.execPath,["--test"],{cwd:fileURLToPath(new URL("..",import.meta.url)),env,stdio:"inherit"});
+if(result.error)throw result.error;
+process.exitCode=result.status??1;
