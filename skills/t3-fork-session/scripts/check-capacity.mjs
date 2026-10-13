@@ -2,7 +2,7 @@
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
-import { MODELS, PROVIDERS, T3Client } from "./fork-session.mjs";
+import { MODELS, PROVIDERS, T3Client, usageLimit } from "./fork-session.mjs";
 
 const workerName = /^(?:(?:CONTROL|AUTONOMY)\d+|(?:[ac]\d+|[a-z][a-z0-9]*)_[ac]\d+|[a-z0-9_]+_worker)_(?:SOL|ASTRA|OPUS|SONNET|FLASH)$/i;
 
@@ -18,6 +18,9 @@ export function capacityReport(shell, config, { now = new Date(), refreshErrors 
         backgroundLiveness: t.backgroundLiveness ?? null,
         workerByNamingConvention: workerName.test(t.title),
       }));
+    const limitedSessions = shell.threads.filter((t) => t.modelSelection.instanceId === profile.instanceId)
+      .filter((t) => t.session?.status === "error" && /usage limit/i.test(t.session?.lastError ?? ""))
+      .map((t) => ({ threadId: t.id, title: t.title, lastError: t.session.lastError, updatedAt: t.updatedAt }));
     const limits = provider?.usageLimits;
     const checkedTime = Date.parse(limits?.checkedAt);
     return {
@@ -43,6 +46,7 @@ export function capacityReport(shell, config, { now = new Date(), refreshErrors 
           resetsAt: w.resetsAt ?? null, windowDurationMins: w.windowDurationMins ?? null,
         })),
       },
+      limitedSessions,
       activeSessionCount: sessions.length,
       activeWorkersByNameCount: sessions.filter((t) => t.workerByNamingConvention).length,
       activeSessions: sessions,
@@ -69,6 +73,7 @@ export function capacityReport(shell, config, { now = new Date(), refreshErrors 
       "Counts cover this T3 environment only, across all projects; terminal sessions and other machines are not visible.",
       "Worker counts use the naming convention, not ownership. All active sessions also consume capacity. Use t3_worker_list for this master's actual workers and queued assignments.",
       "Background liveness includes monitoring and does not prove ongoing model usage. Missing quota windows do not mean unlimited capacity; refresh failures may retain older data.",
+      "Claude accounts report no usage windows; limitedUntil comes from the latest usage-limit rejection seen in this environment and is null when none is active.",
       "Shared-account grouping is best effort; aliases and model-specific windows may share quota. This report does not rank accounts or select a model.",
     ],
   };
@@ -83,7 +88,13 @@ export async function checkCapacity(client, { refresh = true } = {}) {
     });
   }
   const [shell, config] = await Promise.all([client.http("/api/orchestration/shell"), client.rpc("server.getConfig", {}).promise]);
-  return capacityReport(shell, config, { refreshErrors });
+  const report = capacityReport(shell, config, { refreshErrors });
+  for (const account of report.accounts) {
+    for (const session of account.limitedSessions) Object.assign(session, { usageLimit: usageLimit(await client.thread(session.threadId)) });
+    const resets = account.limitedSessions.map((s) => s.usageLimit).filter((l) => l?.active).map((l) => l.resetsAt).sort();
+    account.limitedUntil = resets.at(-1) ?? null;
+  }
+  return report;
 }
 
 async function main() {

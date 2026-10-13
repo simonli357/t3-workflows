@@ -230,6 +230,14 @@ export async function runFork(client, input, emit = () => {}) {
   return client.waitForTurn(plan, messageId, input.wait ?? "started");
 }
 
+export function usageLimit(thread, now = new Date()) {
+  const hit = [...(thread.activities ?? [])].reverse().find((a) => Number.isFinite(a.payload?.detail?.resetsAt));
+  if (!hit) return null;
+  const resetsAt = new Date(hit.payload.detail.resetsAt * 1000);
+  return { rateLimitType: hit.payload.detail.rateLimitType ?? null, resetsAt: resetsAt.toISOString(),
+    reportedAt: hit.createdAt, active: resetsAt > now };
+}
+
 export function workerInput(plan, task) {
   return { sourceThreadId: plan.sourceThreadId, threadId: plan.threadId,
     title: plan.name, modelSelection: plan.modelSelection, prompt: task };

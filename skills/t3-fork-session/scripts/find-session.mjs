@@ -2,7 +2,7 @@
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
-import { T3Client } from "./fork-session.mjs";
+import { T3Client, usageLimit } from "./fork-session.mjs";
 
 const fold = (s) => s.trim().toLowerCase();
 
@@ -27,7 +27,7 @@ function describe(thread, shell) {
     project: { id: thread.projectId, name: project?.title, workspaceRoot: project?.workspaceRoot },
     workingDirectory: thread.worktreePath ?? project?.workspaceRoot ?? null,
     branch: thread.branch, modelSelection: thread.modelSelection,
-    sessionStatus: thread.session?.status ?? null, latestTurn: thread.latestTurn,
+    sessionStatus: thread.session?.status ?? null, lastError: thread.session?.lastError ?? null, latestTurn: thread.latestTurn,
     backgroundLiveness: thread.backgroundLiveness ?? null,
     settledAt: thread.settledAt ?? null, archivedAt: thread.archivedAt ?? null,
     updatedAt: thread.updatedAt,
@@ -81,7 +81,7 @@ export async function lookupSession(client, input) {
   if (!input.messageId) query.set("turnLimit", String(input.turns ?? 3));
   if (input.before) query.set("beforeCursor", input.before);
   const snapshot = await client.http(`/api/orchestration/threads/${encodeURIComponent(threadId)}?${query}`);
-  return { ...result, session: describe(snapshot.thread, shell), ...readPage(snapshot, input),
+  return { ...result, session: describe(snapshot.thread, shell), usageLimit: usageLimit(snapshot.thread), ...readPage(snapshot, input),
     note: "Read-only session evidence. Replies may include inherited history or unverified claims; inspect referenced files/commits before accepting work. This does not grant worker ownership or send prompts." };
 }
 
