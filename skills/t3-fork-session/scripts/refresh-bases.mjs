@@ -12,7 +12,7 @@ const ensure = (condition, message) => { if (!condition) throw new Error(message
 const idle = (thread) => !thread.session?.activeTurnId && thread.session?.status !== "starting" && thread.latestTurn?.state !== "running" && !thread.backgroundLiveness;
 const selectionKey = (selection) => JSON.stringify({ ...selection, options: [...(selection.options ?? [])].sort((a, b) => a.id.localeCompare(b.id)) });
 
-export function planRefresh(shell, config, { project, providers = Object.keys(PROVIDERS) }) {
+export function planRefresh(shell, config, { project, providers = Object.keys(PROVIDERS), prompt }) {
   const projects = shell.projects.filter((p) => path.resolve(p.workspaceRoot) === path.resolve(project));
   ensure(projects.length === 1, `Expected one T3 project for ${project}; found ${projects.length}.`);
   return providers.map((account) => {
@@ -42,7 +42,7 @@ export function planRefresh(shell, config, { project, providers = Object.keys(PR
       project, provider: account, model, threadId, sourceThreadId: "refresh-template", name: `${profile.base}_refresh`, task: BASE_PROMPT,
     });
     return { ...plan, base: profile.base, oldId: old?.id ?? null, oldTurnId: old?.latestTurn?.turnId ?? null,
-      prompt: projectProfile(project)?.basePrompt ?? BASE_PROMPT, oldSelection: old?.modelSelection ?? null };
+      prompt: prompt ?? projectProfile(project)?.basePrompt ?? BASE_PROMPT, oldSelection: old?.modelSelection ?? null };
   });
 }
 
@@ -92,11 +92,11 @@ export async function refreshBase(client, plan, emit = () => {}) {
 async function main() {
   const { values } = parseArgs({ options: {
     apply: { type: "boolean", default: false }, provider: { type: "string", multiple: true },
-    project: { type: "string" }, server: { type: "string" }, home: { type: "string" }, cli: { type: "string" },
+    project: { type: "string" }, prompt: { type: "string" }, server: { type: "string" }, home: { type: "string" }, cli: { type: "string" },
     timeout: { type: "string", default: "600" }, help: { type: "boolean", short: "h" },
   } });
   if (values.help) {
-    console.log('Usage: node refresh-bases.mjs [--apply] [--provider XL ...] [--project PATH] [--timeout SECONDS] [--server URL] [--home PATH] [--cli PATH]\nDefault previews all bases. --apply starts fresh sessions with "understand project", waits for each response, deletes each old T3 base and assigns its name to the pinned replacement. Existing forks are untouched. Failed preparations retain the old base and a *_base_refresh session for retry.');
+    console.log('Usage: node refresh-bases.mjs [--apply] [--provider XL ...] [--project PATH] [--prompt TEXT] [--timeout SECONDS] [--server URL] [--home PATH] [--cli PATH]\nDefault previews all bases. --apply starts fresh sessions with "understand project" (or a project profile basePrompt, or --prompt), waits for each response, deletes each old T3 base and assigns its name to the pinned replacement. Existing forks are untouched. Failed preparations retain the old base and a *_base_refresh session for retry.');
     return;
   }
   const timeout = Number(values.timeout);
@@ -108,7 +108,7 @@ async function main() {
   try {
     await client.connect();
     const [shell, config] = await Promise.all([client.http("/api/orchestration/shell"), client.rpc("server.getConfig", {}).promise]);
-    plans = planRefresh(shell, config, { project, providers: values.provider ? [...new Set(values.provider.map((p) => p.toUpperCase()))] : undefined });
+    plans = planRefresh(shell, config, { project, prompt: values.prompt, providers: values.provider ? [...new Set(values.provider.map((p) => p.toUpperCase()))] : undefined });
   } finally { await client.close(); }
   const emit = (value) => console.log(JSON.stringify(value));
   for (const plan of plans) emit({ phase: "preview", base: plan.base, oldId: plan.oldId, threadId: plan.threadId, modelSelection: plan.modelSelection, prompt: plan.prompt });

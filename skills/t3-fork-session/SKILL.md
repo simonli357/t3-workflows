@@ -250,9 +250,10 @@ assigned, reuse the retained worker and verify it becomes active again.
 
 When the user requests a base refresh, run
 `node <skill-directory>/scripts/refresh-bases.mjs` to preview, then add `--apply`
-to execute. It prepares fresh sessions with exactly `understand project`, waits
-for each reply, pins the replacement, deletes the old T3 base, and gives the
-replacement its base name.
+to execute. It prepares fresh sessions with exactly `understand project`, or the
+text given with `--prompt` (for example `--prompt "understand the key ara repos"`
+when the bases serve work in other repositories). It waits for each reply, pins
+the replacement, deletes the old T3 base, and gives the replacement its base name.
 Existing worker forks are untouched. Missing configured bases are created. Existing base models/modes are retained with the profile's fixed effort;
 new bases use Opus XHigh, Astra High, or Flash Max with full access.
 
