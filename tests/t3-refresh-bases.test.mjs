@@ -59,6 +59,20 @@ test("failed preparation retains old base and retry reuses the pending session a
   assert.equal(f.client.commands.filter((c) => c.type === "thread.turn.start").length, 1);
 });
 
+test("a retry adopts a pending base whose prompt was answered in a turn resumed after a server restart", async () => {
+  const f = fixture();
+  f.client.failTurn = true;
+  const plan = f.plan();
+  await assert.rejects(refreshBase(f.client, plan), /Provider unavailable/);
+  const pending = f.shell.threads.find((t) => t.id === plan.threadId);
+  pending.latestTurn = { turnId: "resumed-turn", state: "completed" };
+  pending.messages.push({ role: "assistant", text: "Repositories understood." });
+  await refreshBase(f.client, f.plan());
+  assert.equal(f.shell.threads.find((t) => t.title === "xl_base").id, plan.threadId);
+  assert.equal(f.shell.threads.some((t) => t.id === f.old.id), false);
+  assert.equal(f.client.commands.filter((c) => c.type === "thread.turn.start").length, 1);
+});
+
 test("busy or ambiguous bases stop preflight, and a newly used old base is not deleted", async () => {
   const f = fixture();
   f.old.latestTurn.state = "running";

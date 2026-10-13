@@ -46,6 +46,8 @@ export function planRefresh(shell, config, { project, providers = Object.keys(PR
   });
 }
 
+const answered = (thread) => idle(thread) && thread.messages.some((m) => m.role === "assistant" && m.text?.trim());
+
 export async function refreshBase(client, plan, emit = () => {}) {
   const snapshot = await client.http("/api/orchestration/shell");
   const existing = snapshot.threads.find((t) => t.id === plan.threadId);
@@ -70,9 +72,9 @@ export async function refreshBase(client, plan, emit = () => {}) {
       runtimeMode: plan.runtimeMode, interactionMode: plan.interactionMode, createdAt: new Date().toISOString() });
   }
   emit({ phase: "preparing", base: plan.base, threadId: plan.threadId });
-  await client.waitForTurn(plan, messageId, "completed");
+  if (!(users.length && answered(fresh))) await client.waitForTurn(plan, messageId, "completed");
   const completed = await client.thread(plan.threadId);
-  ensure(idle(completed) && completed.messages.some((m) => m.role === "assistant" && m.text?.trim()), `${plan.name} has no finished response or still has background work; old base retained.`);
+  ensure(answered(completed), `${plan.name} has no finished response or still has background work; old base retained.`);
   await client.dispatch({ type: "thread.pin", commandId: `base:${plan.threadId}:pin`, threadId: plan.threadId });
   ensure((await client.thread(plan.threadId)).pinnedAt, `Could not pin ${plan.name}; old base retained.`);
   const shell = await client.http("/api/orchestration/shell");
