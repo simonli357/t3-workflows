@@ -1,6 +1,12 @@
 {
   "stableBase": "v0.0.45",
   "customBranch": "custom-stable",
+  "updatePolicy": {
+    "runtime": "custom-stable",
+    "weeklyReview": "Fetch upstream stable, main and nightly changes; recommend individual changes to take, defer or skip for user selection.",
+    "integration": "Integrate selected changes into custom stable, preserving custom behavior and existing phone/desktop compatibility.",
+    "channelChanges": "No nightly switch or stable-base upgrade is planned or authorized by the weekly review."
+  },
   "contracts": [
     {"name":"prepared base forks", "localCommits":["48b496c4","75fde292"], "requirement":"Fork native and visible conversation history from the selected idle account base, preserving context and source; custom naming and fixed effort are external workflow configuration.", "upstreamDisposition":"Verify native fork equivalence before retiring custom implementation."},
     {"name":"persistent workers", "localCommits":["300f5f92"], "requirement":"Persist master ownership separately from fork source; list/read/send/wait/control; durable queues and bounded incremental reads; follow up in the same worker.", "upstreamDisposition":"Upstream delegate_task creates prompt-only children and is not automatically equivalent to prepared-base fork ownership."},
@@ -9,5 +15,5 @@
     {"name":"mid-chat account/provider switching", "localCommits":["8993d96a"], "requirement":"Preserve conversation, transfer compatible cursors safely, otherwise bounded handoff with history access; queue changes until current turn ends."},
     {"name":"Codex health probes", "localCommits":["43bfd89b"], "requirement":"Successful provider status must survive probe cleanup; avoid false timeout/unavailable reports."}
   ],
-  "activationRequirements":["Existing conversations survive migration", "All installed account profiles remain available", "Android app and Windows desktop speak the target protocol", "Real base fork and master-worker round trips pass", "Existing workers retain ownership and reporting"]
+  "integrationRequirements":["Existing conversations and data remain intact", "All installed account profiles remain available", "Preserve compatibility with the existing Android app and Windows desktop", "Real base fork and master-worker round trips pass", "Existing workers retain ownership and reporting"]
 }

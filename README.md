@@ -13,13 +13,15 @@ t3w refresh-bases --project scandy --apply
 t3w update
 ```
 
-`fork` accepts the existing helper's options. Inside T3, use `--mcp-plan` and pass the result to `t3_worker_spawn`. Global installation does not replace the server's custom worker tools. They currently require the custom protocol-1 build; protocol-2 migration must preserve their behavior before activation.
+`fork` accepts the existing helper's options. Inside T3, use `--mcp-plan` and pass the result to `t3_worker_spawn`. Global installation does not replace the server's custom worker tools. They run on the custom stable build; preserve their behavior when integrating selected upstream changes.
 
 Project resolution uses `--project` (profile name or path), then `T3_WORKFLOWS_PROJECT`, then the current primary Git checkout matched to the machine's project profiles. It never infers a project from the installed skill location. Unknown projects use their own checkout, not Scandy's bases. ScandyAutonomy and ScandyControl intentionally share bases in ScandyControl. Profile names, paths, base prompts/names, account overrides and enabled accounts are configuration. Default account/model profiles live in the skill's `references/accounts.json`; project naming policy lives in the selected profile. There is no scripted account ranking.
 
 `T3_WORKFLOWS_CONFIG` overrides the config path. `skillHomes` lists account configuration roots. `enabledAccounts` can limit the aliases used on a machine; other accounts are not assumed installed. The connection settings accept explicit server/home/CLI overrides as before.
 
 ## Weekly upstream review
+
+Stay on `custom-stable`. Fetch official stable, main and nightly changes weekly as review material. The report recommends individual changes to take, defer or skip; the user chooses which ones to integrate. Backport selected changes and test them against our custom behavior and existing phone/desktop clients before deployment. Reviewing nightly changes does not authorize switching the installed build to nightly. Stable-base upgrades are separate, explicit decisions.
 
 `t3w check-upstream` fetches upstream and collects release notes, new commits, patch-equivalent changes, customization metadata, and the live local environment version. `--review` runs the configured Codex reviewer read-only and writes `~/.local/state/t3-workflows/upstream/latest.md`, then notifies the desktop. It never merges or deploys. The review cursor advances only after a successful report. A failed run keeps its evidence and retries through systemd; a lock prevents overlapping reviews. Inspect the PID in a stale lock before removing it after an interrupted run.
 
