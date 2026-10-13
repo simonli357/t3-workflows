@@ -174,18 +174,27 @@
   ],
   "deployments": {
     "sliara": {
-      "version": "0.0.45+custom.10",
-      "commit": "3157cdf42",
-      "status": "staged-for-next-restart",
-      "runningVersion": "0.0.45+custom.9",
+      "version": "0.0.45+custom.11",
+      "commit": "4ae9872e9",
+      "status": "active",
+      "runningVersion": "0.0.45+custom.11",
       "orchestrationProtocolVersion": 1,
-      "timestamp": "2026-10-13T16:17:06.524821+00:00",
-      "serviceRestarted": false
+      "timestamp": "2026-10-13T16:53:14.917Z",
+      "serviceRestarted": true,
+      "verifiedResumedSessions": 7
     },
     "myalien": {
       "runningVersion": "0.0.45+custom.4",
       "status": "not-changed-in-this-batch",
       "observation": "last verified during global-tooling installation; weekly checker queries live version"
     }
-  }
+  },
+  "localFixes": [
+    {
+      "commit": "4ae9872e9",
+      "version": "0.0.45+custom.11",
+      "feature": "Automatic restart continuation preserves saved account/model/effort; no fallback to Codex medium",
+      "validation": "26 recovery tests; server typecheck; live native Codex settings confirm high after restart"
+    }
+  ]
 }
