@@ -8,12 +8,184 @@
     "channelChanges": "No nightly switch or stable-base upgrade is planned or authorized by the weekly review."
   },
   "contracts": [
-    {"name":"prepared base forks", "localCommits":["48b496c4","75fde292"], "requirement":"Fork native and visible conversation history from the selected idle account base, preserving context and source; custom naming and fixed effort are external workflow configuration.", "upstreamDisposition":"Verify native fork equivalence before retiring custom implementation."},
-    {"name":"persistent workers", "localCommits":["300f5f92"], "requirement":"Persist master ownership separately from fork source; list/read/send/wait/control; durable queues and bounded incremental reads; follow up in the same worker.", "upstreamDisposition":"Upstream delegate_task creates prompt-only children and is not automatically equivalent to prepared-base fork ownership."},
-    {"name":"worker reports", "localCommits":["c7d1216c","b0aeba36","79ba0c50"], "requirement":"Report completed and failed turns including manual-input and provider-switch turns; release reports after accepted steering; retain ownership, deduplicate and honor disabled notifications.", "upstreamDisposition":"Audit native/app-owned task reporting separately from custom forked workers."},
-    {"name":"intentional worker account changes", "localCommits":["5203595a","94979c39"], "requirement":"Validate settings at send time; explicit adoption or master-controlled account/model change updates saved profile; preserve permissions and ownership; do not replay failed prompts."},
-    {"name":"mid-chat account/provider switching", "localCommits":["8993d96a"], "requirement":"Preserve conversation, transfer compatible cursors safely, otherwise bounded handoff with history access; queue changes until current turn ends."},
-    {"name":"Codex health probes", "localCommits":["43bfd89b"], "requirement":"Successful provider status must survive probe cleanup; avoid false timeout/unavailable reports."}
+    {
+      "name": "prepared base forks",
+      "localCommits": [
+        "48b496c4",
+        "75fde292"
+      ],
+      "requirement": "Fork native and visible conversation history from the selected idle account base, preserving context and source; custom naming and fixed effort are external workflow configuration.",
+      "upstreamDisposition": "Verify native fork equivalence before retiring custom implementation."
+    },
+    {
+      "name": "persistent workers",
+      "localCommits": [
+        "300f5f92"
+      ],
+      "requirement": "Persist master ownership separately from fork source; list/read/send/wait/control; durable queues and bounded incremental reads; follow up in the same worker.",
+      "upstreamDisposition": "Upstream delegate_task creates prompt-only children and is not automatically equivalent to prepared-base fork ownership."
+    },
+    {
+      "name": "worker reports",
+      "localCommits": [
+        "c7d1216c",
+        "b0aeba36",
+        "79ba0c50"
+      ],
+      "requirement": "Report completed and failed turns including manual-input and provider-switch turns; release reports after accepted steering; retain ownership, deduplicate and honor disabled notifications.",
+      "upstreamDisposition": "Audit native/app-owned task reporting separately from custom forked workers."
+    },
+    {
+      "name": "intentional worker account changes",
+      "localCommits": [
+        "5203595a",
+        "94979c39"
+      ],
+      "requirement": "Validate settings at send time; explicit adoption or master-controlled account/model change updates saved profile; preserve permissions and ownership; do not replay failed prompts."
+    },
+    {
+      "name": "mid-chat account/provider switching",
+      "localCommits": [
+        "8993d96a"
+      ],
+      "requirement": "Preserve conversation, transfer compatible cursors safely, otherwise bounded handoff with history access; queue changes until current turn ends."
+    },
+    {
+      "name": "Codex health probes",
+      "localCommits": [
+        "43bfd89b"
+      ],
+      "requirement": "Successful provider status must survive probe cleanup; avoid false timeout/unavailable reports."
+    }
   ],
-  "integrationRequirements":["Existing conversations and data remain intact", "All installed account profiles remain available", "Preserve compatibility with the existing Android app and Windows desktop", "Real base fork and master-worker round trips pass", "Existing workers retain ownership and reporting"]
+  "integrationRequirements": [
+    "Existing conversations and data remain intact",
+    "All installed account profiles remain available",
+    "Preserve compatibility with the existing Android app and Windows desktop",
+    "Real base fork and master-worker round trips pass",
+    "Existing workers retain ownership and reporting"
+  ],
+  "backportBatches": [
+    {
+      "version": "0.0.45+custom.10",
+      "branch": "custom-stable",
+      "commit": "3157cdf42",
+      "date": "2026-10-13",
+      "base": "v0.0.45",
+      "orchestrationProtocolVersion": 1,
+      "changes": [
+        {
+          "upstreamPr": 16223,
+          "upstreamCommit": "24e4b62c8",
+          "localCommit": "32706e566",
+          "status": "backported",
+          "feature": "DrainableWorker survives an item failure"
+        },
+        {
+          "upstreamPr": 17663,
+          "upstreamCommit": "140ee145a",
+          "localCommit": "a299fac9d",
+          "status": "backported",
+          "feature": "Codex shadow homes share sqlite maintenance locks correctly"
+        },
+        {
+          "upstreamPr": 17058,
+          "upstreamCommit": "dc192851f",
+          "localCommit": "4edff06fd",
+          "status": "adapted",
+          "feature": "Auxiliary Codex title/branch calls skip user MCP servers, plugins and apps"
+        },
+        {
+          "upstreamPr": 14897,
+          "upstreamCommit": "9333509c9",
+          "localCommit": "b118ddc84",
+          "status": "backported",
+          "feature": "Reconnect backoff and jitter preserve healthy sockets"
+        },
+        {
+          "upstreamPr": 16554,
+          "upstreamCommit": "a143fa3c5",
+          "localCommit": "79aa9e579",
+          "status": "backported",
+          "feature": "T3 Connect retries while managed endpoint allocation is pending"
+        },
+        {
+          "upstreamPr": 17898,
+          "upstreamCommit": "f82796a16",
+          "localCommit": "3157cdf42",
+          "status": "adapted",
+          "feature": "Claude MCP registration uses stdin control messages, with startup cleanup on timeout/interruption"
+        },
+        {
+          "upstreamPr": 17662,
+          "upstreamCommit": "a0a601c26",
+          "localCommit": "3157cdf42",
+          "status": "adapted",
+          "feature": "Linux agent scopes, memory/OOM protection and confirmed OOM error reporting"
+        },
+        {
+          "upstreamPr": 17496,
+          "upstreamCommit": "98beed1a2",
+          "localCommit": "3157cdf42",
+          "status": "adapted",
+          "feature": "Nested Claude tasks inherit owner effort and respect explicit model/effort overrides"
+        },
+        {
+          "upstreamPr": 17826,
+          "upstreamCommit": "8c777fbfa",
+          "localCommit": "3157cdf42",
+          "status": "adapted",
+          "feature": "Stop native Claude subagents in the web/desktop Agents panel or scoped MCP tool without stopping the owner"
+        },
+        {
+          "upstreamPr": 18778,
+          "upstreamCommit": "265fb7000",
+          "localCommit": "3157cdf42",
+          "status": "adapted",
+          "feature": "Show the actual task notification outcome instead of assuming stopped on acknowledgement"
+        },
+        {
+          "upstreamPr": 15323,
+          "upstreamCommit": "5108c978b",
+          "status": "not-applicable-to-stable-engine",
+          "reason": "Fixes V2 delegated-task/run recovery. This build retains protocol 1 and custom WorkerControls, whose restart/report persistence tests pass. Stable startup reconciliation preserves stop/continuation semantics; V2 is not enabled."
+        },
+        {
+          "upstreamPr": 17654,
+          "upstreamCommit": "477282263",
+          "status": "not-applicable-to-stable-engine",
+          "reason": "Fixes V2 queued runs and preparation-time metadata races. Stable gates sends until worktree handoff and serializes worktree commands through workspace leases. Does not add the V2 setup-time queue UI."
+        }
+      ],
+      "validation": [
+        "Focused connection, provider, worker, authorization and restart suites pass",
+        "Server/web typechecks pass",
+        "Targeted lint passes with existing warnings",
+        "Web and native executable build",
+        "Protocol 1 startup with 234-thread isolated snapshot; replay jobs removed and providers disabled in the copy",
+        "Real Linux systemd scope and oom_score_adj=800 launch"
+      ],
+      "limitations": [
+        "No browser/computer-use or Android-device validation performed",
+        "Native Android Stop UI is not part of this server/web backport",
+        "Prepared-base worker behavior covered by regression tests; no new live worker assignments issued for validation"
+      ]
+    }
+  ],
+  "deployments": {
+    "sliara": {
+      "version": "0.0.45+custom.10",
+      "commit": "3157cdf42",
+      "status": "staged-for-next-restart",
+      "runningVersion": "0.0.45+custom.9",
+      "orchestrationProtocolVersion": 1,
+      "timestamp": "2026-10-13T16:17:06.524821+00:00",
+      "serviceRestarted": false
+    },
+    "myalien": {
+      "runningVersion": "0.0.45+custom.4",
+      "status": "not-changed-in-this-batch",
+      "observation": "last verified during global-tooling installation; weekly checker queries live version"
+    }
+  }
 }
