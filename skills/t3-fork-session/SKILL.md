@@ -204,9 +204,12 @@ Masters must not use worker messages as a chat:
   progress without prompting every worker to reply.
 
 A final answer or ended turn alone does not notify the master. Explicit reports
-are durable and wait for the worker's current turn to end; `done` also waits for
-background work. Provider failures and requests for input still notify
-automatically, labeled as runtime events rather than completed assignments.
+are durable and delivered immediately, including while the master is busy or
+has an unanswered question. Stop suppresses automatic wake-up: the report still
+appears, and reaches the agent when the master resumes. Report `done` only after
+the assigned work and its required background checks finish. Provider failures
+and requests for input still notify automatically, labeled as runtime events
+rather than completed assignments.
 Never autoapprove an input/approval request.
 
 After a server restart, inspect current state before resuming anything. Automatic

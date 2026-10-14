@@ -175,14 +175,14 @@
   ],
   "deployments": {
     "sliara": {
-      "version": "0.0.45+custom.13",
-      "commit": "5cc2e4d38",
+      "version": "0.0.45+custom.14",
+      "commit": "d24438d1d",
       "status": "active",
-      "runningVersion": "0.0.45+custom.13",
+      "runningVersion": "0.0.45+custom.14",
       "orchestrationProtocolVersion": 1,
-      "timestamp": "2026-10-13T18:47:46.801986+00:00",
+      "timestamp": "2026-10-14T15:36:50.326234+00:00",
       "serviceRestarted": true,
-      "verifiedResumedSessions": 9
+      "verifiedResumedSessions": 5
     },
     "myalien": {
       "runningVersion": "0.0.45+custom.4",
@@ -208,6 +208,12 @@
       "version": "0.0.45+custom.13",
       "feature": "Explicit done/blocked worker reports and required master review in report prompts and provider runtime context",
       "validation": "37 focused tests; server typecheck; targeted lint; 9 active sessions resumed unchanged; 704master uses worker list/read and inspects evidence during catch-up review"
+    },
+    {
+      "commit": "d24438d1d",
+      "version": "0.0.45+custom.14",
+      "feature": "Deliver explicit worker reports immediately while masters run or await input; persist visible reports after Stop without automatic restart; resume delivery after normal input without duplicate messages",
+      "validation": "109 focused tests across worker controls, deferred messages and provider command delivery; server typecheck; targeted lint; live custom.14 confirmed; five active sessions resumed with account/model/effort preserved"
     }
   ]
 }
