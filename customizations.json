@@ -175,14 +175,14 @@
   ],
   "deployments": {
     "sliara": {
-      "version": "0.0.45+custom.14",
-      "commit": "d24438d1d",
+      "version": "0.0.45+custom.15",
+      "commit": "f9dd18603",
       "status": "active",
-      "runningVersion": "0.0.45+custom.14",
+      "runningVersion": "0.0.45+custom.15",
       "orchestrationProtocolVersion": 1,
-      "timestamp": "2026-10-14T15:36:50.326234+00:00",
+      "timestamp": "2026-10-15T13:54:39.236449+00:00",
       "serviceRestarted": true,
-      "verifiedResumedSessions": 5
+      "verifiedResumedSessions": 3
     },
     "myalien": {
       "runningVersion": "0.0.45+custom.4",
@@ -214,6 +214,12 @@
       "version": "0.0.45+custom.14",
       "feature": "Deliver explicit worker reports immediately while masters run or await input; persist visible reports after Stop without automatic restart; resume delivery after normal input without duplicate messages",
       "validation": "109 focused tests across worker controls, deferred messages and provider command delivery; server typecheck; targeted lint; live custom.14 confirmed; five active sessions resumed with account/model/effort preserved"
+    },
+    {
+      "commit": "f9dd18603",
+      "version": "0.0.45+custom.15",
+      "feature": "Authenticated t3_session_send for peer coordination across masters and providers, preserving ownership and account profiles; stopped/snoozed recipients remain paused",
+      "validation": "37 worker/MCP tests; server typecheck; targeted lint; live SL/Sol to ES/Opus message and reply completed; three active sessions resumed unchanged"
     }
   ]
 }
