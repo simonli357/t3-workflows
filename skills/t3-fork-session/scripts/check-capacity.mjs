@@ -4,7 +4,7 @@ import { pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
 import { MODELS, PROVIDERS, T3Client, usageLimit } from "./fork-session.mjs";
 
-const workerName = /^(?:(?:CONTROL|AUTONOMY)\d+|(?:[ac]\d+|[a-z][a-z0-9]*)_[ac]\d+|[a-z0-9_]+_worker)_(?:SOL|ASTRA|OPUS|SONNET|FLASH)$/i;
+const workerName = /^(?:(?:CONTROL|AUTONOMY)\d+|(?:[a-z]+\d+_)?[a-z]+\d+_[a-z][a-z0-9]*|(?:[ac]\d+|[a-z][a-z0-9]*)_[ac]\d+|[a-z0-9_]+_worker)_(?:SOL|ASTRA|OPUS|SONNET|FLASH)$/i;
 
 export function capacityReport(shell, config, { now = new Date(), refreshErrors = [] } = {}) {
   const accounts = Object.entries(PROVIDERS).map(([account, profile]) => {

@@ -6,11 +6,14 @@ configuration, not hardcoded script decisions. Respect explicit user choices;
 otherwise use capacity and task needs to select a compatible profile.
 
 All new worker names are lowercase, including the model suffix. For issue work,
-use `<epic-or-keyword>_<repository-prefix><issue-number>_<model>`. Use the project's
-configured repository prefixes and nearest explicit epic; otherwise one relevant
-keyword. For other work use `<short-description>_worker_<model>`. Preserve full
-issue references in the assignment. Scandy's exact conventions are in
-[scandy.md](scandy.md); apply them only to the Scandy profile.
+use `<epic>_<repository-prefix><issue-number>_<keyword>_<model>`. Omit `<epic>_`
+when no epic is identified. Choose exactly one lowercase word that best describes
+the work, immediately before the model suffix. Use the project's configured
+repository prefixes and nearest explicit epic. For example:
+`a569_a635_localization_opus`, `a569_c344_camera_sol`, or `c344_camera_sol`
+without an epic. For other work use `<short-description>_worker_<model>`.
+Preserve full issue references in the assignment. Scandy's exact conventions are
+in [scandy.md](scandy.md); apply them only to the Scandy profile.
 
 Resolve bases by project and name each time, rejecting missing or ambiguous
 matches. Explicit source sessions must use the selected account and project.

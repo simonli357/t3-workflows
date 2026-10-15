@@ -8,7 +8,7 @@ Clone this private repository into `~/t3-workflows`, create `~/.config/t3-workfl
 t3w doctor
 t3w profile --project scandy
 t3w capacity
-t3w find 'camera_c344_sol'
+t3w find 'c344_camera_sol'
 t3w refresh-bases --project scandy --apply
 t3w update
 ```

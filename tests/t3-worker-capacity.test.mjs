@@ -78,3 +78,13 @@ test("worker counts recognize epic and keyword names while retaining legacy and 
   assert.equal(sl.activeWorkersByNameCount, 8);
   assert.deepEqual(sl.activeSessions.filter((s) => s.workerByNamingConvention).map((s) => s.title), names.slice(0, 8));
 });
+
+
+test("worker counts include descriptive issue names with and without epics", () => {
+  const valid = ["a569_a635_localization_opus", "a569_c344_camera_sol", "c344_camera_sol", "a635_localization_astra", "e7_s9_capture_sonnet"];
+  const names = [...valid, "a569_a635_localization", "c344_camera_unknown", "sl_base"];
+  const shell = { threads: names.map((name, i) => active(String(i), "codex", name)) };
+  const sl = capacityReport(shell, { providers: [] }, { now }).accounts.find((a) => a.account === "SL");
+  assert.equal(sl.activeWorkersByNameCount, valid.length);
+  assert.deepEqual(sl.activeSessions.filter(s => s.workerByNamingConvention).map(s => s.title), valid);
+});

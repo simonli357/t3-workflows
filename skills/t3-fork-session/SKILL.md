@@ -102,7 +102,7 @@ never silently substitute a provider on retry.
 
 ```bash
 node <skill-directory>/scripts/fork-session.mjs \
-  --provider SL --model sol --name 'camera_c344_sol' \
+  --provider SL --model sol --name 'c344_camera_sol' \
   --thread-id <destination-uuid> --task-file /absolute/path/to/task.txt --mcp-plan
 ```
 
@@ -118,7 +118,7 @@ starts from a task prompt and does not preserve this workflow's base context.
 When the user names a session, resolve it directly instead of asking for its UUID:
 
 ```bash
-node <skill-directory>/scripts/find-session.mjs 'a569_a635_opus'
+node <skill-directory>/scripts/find-session.mjs 'a569_a635_localization_opus'
 ```
 
 The read-only tool searches current, settled, and archived sessions across all

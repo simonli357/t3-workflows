@@ -29,7 +29,7 @@
         "ScandyRobotics/ScandyAutonomy": "a",
         "ScandyRobotics/ScandyControl": "c"
       },
-      "naming": "lowercase; closest explicit epic prefix, otherwise one relevant keyword; append fixed model suffix; see references/scandy.md"
+      "naming": "lowercase; closest explicit epic prefix if available, then issue, then one word that best describes the work, then fixed model suffix; omit epic prefix when absent; see references/scandy.md"
     }
   },
   "upstream": {
