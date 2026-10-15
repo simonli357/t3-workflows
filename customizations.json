@@ -175,14 +175,14 @@
   ],
   "deployments": {
     "sliara": {
-      "version": "0.0.45+custom.15",
-      "commit": "f9dd18603",
+      "version": "0.0.45+custom.16",
+      "commit": "cd88ad0a1",
       "status": "active",
-      "runningVersion": "0.0.45+custom.15",
+      "runningVersion": "0.0.45+custom.16",
       "orchestrationProtocolVersion": 1,
-      "timestamp": "2026-10-15T13:54:39.236449+00:00",
+      "timestamp": "2026-10-15T18:27:28.859451+00:00",
       "serviceRestarted": true,
-      "verifiedResumedSessions": 3
+      "verifiedResumedSessions": 9
     },
     "myalien": {
       "runningVersion": "0.0.45+custom.4",
@@ -220,6 +220,12 @@
       "version": "0.0.45+custom.15",
       "feature": "Authenticated t3_session_send for peer coordination across masters and providers, preserving ownership and account profiles; stopped/snoozed recipients remain paused",
       "validation": "37 worker/MCP tests; server typecheck; targeted lint; live SL/Sol to ES/Opus message and reply completed; three active sessions resumed unchanged"
+    },
+    {
+      "commit": "cd88ad0a1",
+      "version": "0.0.45+custom.16",
+      "feature": "Apply done-or-genuinely-blocked reporting instructions to peer messages and all reporting channels; remove intermediate-findings exception from skill and tool descriptions",
+      "validation": "44 existing worker/runtime-instruction tests; targeted lint; executable build; global skill and provider runtime instructions updated"
     }
   ]
 }
