@@ -198,23 +198,24 @@
   ],
   "deployments": {
     "sliara": {
-      "version": "0.0.45+custom.25",
-      "runningVersion": "0.0.45+custom.25",
-      "sourceCommit": "4dadf200f",
-      "serverBuildCommit": "4dadf200f",
+      "version": "0.0.45+custom.26",
+      "runningVersion": "0.0.45+custom.26",
+      "sourceCommit": "fc72a080f",
+      "serverBuildCommit": "fc72a080f",
       "status": "active",
       "orchestrationProtocolVersion": 1,
-      "timestamp": "2026-10-19T17:14:14+00:00",
+      "timestamp": "2026-10-19T20:14:51+00:00",
       "serviceRestarted": true,
-      "verifiedResumedSessions": 11,
+      "verifiedResumedSessions": 8,
       "preservedSessionCount": 346,
       "capabilities": [
-        "workerFreshSessions",
         "orchestratorHandoff",
-        "peerEnvironments"
+        "peerEnvironments",
+        "settledThreadPurge",
+        "workerFreshSessions"
       ],
-      "validation": "88 server tests, 43 workflow tests, isolated two-server peer round trip. Live: 11 running sessions continued; peer link to myalien checked both ways; live cross-machine worker round trip passed.",
-      "executableSha256": "e073c5cd26772da954ed65fe20182c180444e7c47998c9880b2d96e2b699b364",
+      "validation": "Activated via service-state activeVersion with rollback guard; 8 of 9 running sessions continued (the 9th had finished its turn); 7 pre-restart orphan Claude processes killed, long jobs kept and their threads told; live purge dry run via CLI (74 s; MCP tool timed out).",
+      "executableSha256": "547c5f61e93c72cad68cbdb59c4892c7133835b9994016a41d5516aba0aa2a20",
       "continueThreadsAfterServerUpdate": true,
       "peers": [
         {
@@ -308,6 +309,12 @@
       "version": "0.0.45+custom.25",
       "feature": "Cross-environment worker ownership and session messages between linked T3 servers (peerEnvironments); also ships the custom-stable upstream backports 887a980fc..c6f801705",
       "validation": "88 server tests incl. two-environment tests, 43 workflow tests (Linux and Windows), isolated two-server HTTP round trip, Windows smoke; live laptop master spawned, waited on, read, listed and settled a worker on myalien and received its report"
+    },
+    {
+      "commit": "7a853fea7..fc72a080f",
+      "version": "0.0.45+custom.26",
+      "feature": "Purge threads settled for more than N days (t3 threads purge-settled, t3_purge_settled_threads MCP): removes T3 rows except one thread.deleted tombstone, exact Claude/Codex transcripts and checkpoint refs on a running server; keeps threads a kept thread depends on",
+      "validation": "SettledThreadPurge and AgentTranscripts tests, server typecheck; sandbox server on a VACUUM INTO copy: 12 then 20 threads purged, restart replay clean; live dry run on sliara: 20 would be purged, 2 skipped with reasons"
     }
   ]
 }

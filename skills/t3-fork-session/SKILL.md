@@ -399,6 +399,19 @@ command, and verifies the worker is marked settled. `t3_worker_control` does not
 disabling reports, archiving, and deleting are not substitutes. If later work is
 assigned, reuse the retained worker and verify it becomes active again.
 
+## Purge old settled sessions
+
+Only when the user asks to purge old settled sessions, run
+`t3 threads purge-settled --days N` (custom.26+). It prints a dry run: the threads,
+transcripts, rows and checkpoint refs it would remove, and the threads it keeps with a
+reason (pinned, live, master of a kept worker, pending job with a kept thread, handoff,
+proposed plan, shared provider session). Show the user that report; add `--yes` only after
+they confirm. A real run deletes each thread from T3 (one `thread.deleted` tombstone event
+stays) and its exact Claude/Codex transcript files; worktrees stay on disk. It needs no
+restart and does not shrink `state.sqlite`; SQLite reuses the freed pages. The
+`t3_purge_settled_threads` MCP tool runs the same purge but can time out on large
+databases; prefer the CLI. Never purge by editing the database.
+
 ## Refresh the prepared bases
 
 When the user requests a base refresh, run
