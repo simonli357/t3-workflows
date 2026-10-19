@@ -220,11 +220,19 @@ without further questions; without an account, choose one with the selection pol
   keyword if the name would not change (`c344_camera_opus` → `c344_camera2_opus`).
   Then settle the old worker.
 
+Worker reports state the worker's working time and the master's own: turn time
+minus tool calls over a minute, so monitoring and builds do not count. When a report
+says a worker is over its renewal threshold, renew it as above before giving it more
+work, without asking. Thresholds are the `workerRenewal` section of each machine's
+T3 `settings.json`: workers 3.5 h, masters 5 h, Codex 1.5 times longer, tool waits
+over 60 s excluded. Edits apply without a restart.
+
 ## Hand orchestration to a successor
 
 A master's turns cost more as its history grows. When the user says **"renew
 yourself"**, hand this master to a new session that starts from a context prompt,
-without asking first. Also renew after compaction or at a calm point in a long run.
+without asking first. Also renew at the next calm point once a worker report says
+you are over your threshold.
 T3 moves the workers, their queued work and undelivered reports; later
 `t3_worker_report` reports go to the successor.
 
