@@ -20,6 +20,13 @@ function single(items, description) {
   return items[0];
 }
 
+// Projects in another environment may use that machine's path style, e.g. C:\Users\me.
+function sameWorkspace(root, wanted, remote) {
+  if (!remote) return path.resolve(root) === path.resolve(wanted);
+  const norm = (value) => value.replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
+  return norm(root) === norm(wanted);
+}
+
 function sameSelection(left, right) {
   const options = (value) => JSON.stringify([...(value.options ?? [])].sort((a, b) => a.id.localeCompare(b.id)));
   return left.instanceId === right.instanceId && left.model === right.model && options(left) === options(right);
@@ -40,7 +47,10 @@ export function planFork(shell, config, input) {
   requireValue(input.name?.trim(), "A worker name is required.");
   requireValue(input.task?.trim(), "A nonempty task is required.");
   requireValue(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(input.threadId), "Destination thread ID must be a UUID.");
-  const project = single(shell.projects.filter((p) => path.resolve(p.workspaceRoot) === path.resolve(input.project)), "T3 project for this workspace");
+  const remote = Boolean(input.environment);
+  if (remote && input.mcpPlan) requireValue(config.environment?.capabilities?.peerEnvironments === true && input.localPeerEnvironments === true,
+    "Both environments need a build with peerEnvironments support before linking workers across them.");
+  const project = single(shell.projects.filter((p) => (remote && [p.id, p.title].includes(input.project)) || sameWorkspace(p.workspaceRoot, input.project, remote)), "T3 project for this workspace");
   const sourceName = input.sourceThreadId ?? baseFor(providerName, input.project);
   const source = (input.fresh || input.selfFork) ? null : single(shell.threads.filter((t) => t.projectId === project.id && (input.sourceThreadId ? t.id === input.sourceThreadId : t.title.toLowerCase() === baseFor(providerName, input.project))), `${sourceName} in ${project.title}`);
   if (source) {
@@ -66,6 +76,7 @@ export function planFork(shell, config, input) {
   }
   return {
     ...(input.selfFork ? { selfFork: true } : {}),
+    ...(remote ? { environment: input.environment } : {}),
     threadId: input.threadId, sourceThreadId: source?.id ?? null, base: source?.title ?? null,
     projectId: project.id, project: project.workspaceRoot, name: input.name.trim(),
     provider: providerName, modelSelection: { instanceId: choice.instanceId, model: profile.slug, options },
@@ -76,12 +87,12 @@ export function planFork(shell, config, input) {
 }
 
 export class T3Client {
-  constructor({ server = process.env.T3_FORK_SERVER_URL ?? settings.connection?.server ?? "http://127.0.0.1:3773", home = process.env.T3CODE_HOME ?? settings.connection?.home ?? path.join(homedir(), ".t3"), cli = process.env.T3_FORK_CLI ?? settings.connection?.cli ?? "t3", timeout = 180 } = {}) {
+  constructor({ server = process.env.T3_FORK_SERVER_URL ?? settings.connection?.server ?? "http://127.0.0.1:3773", home = process.env.T3CODE_HOME ?? settings.connection?.home ?? path.join(homedir(), ".t3"), cli = process.env.T3_FORK_CLI ?? settings.connection?.cli ?? "t3", timeout = 180, token } = {}) {
     this.server = server.replace(/\/$/, "");
     this.home = home;
     this.cli = cli;
     this.timeout = timeout * 1000;
-    this.token = process.env.T3_FORK_TOKEN;
+    this.token = token ?? process.env.T3_FORK_TOKEN;
     this.requests = new Map();
     this.nextId = 0;
   }
@@ -262,7 +273,7 @@ export function usageLimit(thread, now = new Date()) {
 }
 
 export function workerInput(plan, task) {
-  return { ...(plan.selfFork ? { selfFork: true } : {}), ...(plan.sourceThreadId ? { sourceThreadId: plan.sourceThreadId } : { projectId: plan.projectId }), threadId: plan.threadId,
+  return { ...(plan.selfFork ? { selfFork: true } : {}), ...(plan.environment ? { environment: plan.environment } : {}), ...(plan.sourceThreadId ? { sourceThreadId: plan.sourceThreadId } : { projectId: plan.projectId }), threadId: plan.threadId,
     title: plan.name, modelSelection: plan.modelSelection, prompt: task };
 }
 
@@ -277,11 +288,11 @@ async function main() {
     "runtime-mode": { type: "string" }, "interaction-mode": { type: "string" },
     project: { type: "string" }, server: { type: "string" }, home: { type: "string" }, cli: { type: "string" },
     timeout: { type: "string", default: "180" }, wait: { type: "string", default: "started" },
-    "mcp-plan": { type: "boolean", default: false },
+    "mcp-plan": { type: "boolean", default: false }, environment: { type: "string" },
     "dry-run": { type: "boolean", default: false }, help: { type: "boolean", short: "h" },
   } });
   if (values.help) {
-    console.log("--handoff-plan emits input for t3_orchestrator_handoff, allowing a busy self source and a different destination account. --effort overrides the profile default only when advertised.\nUsage: node fork-session.mjs --provider XL|ES|ARA|AD|SL|DS --model opus|sonnet|sol|astra|flash --name TITLE --task-file FILE [--fresh | --source-thread UUID] [--thread-id UUID] [--dry-run | --mcp-plan] [--wait started|completed] [--timeout SECONDS] [--project PATH] [--server URL] [--home PATH] [--cli PATH]\n--fresh creates an empty session without a base; otherwise fork the explicit source or configured base. Use --task TEXT instead of --task-file; --task-file - accepts stdin. Standalone fresh sessions default to approval-required/default; --runtime-mode and --interaction-mode override them. Managed fresh sessions inherit the master's modes. See references/conventions.md for names and fixed effort.");
+    console.log("--handoff-plan emits input for t3_orchestrator_handoff, allowing a busy self source and a different destination account. --effort overrides the profile default only when advertised.\nUsage: node fork-session.mjs --provider XL|ES|ARA|AD|SL|DS --model opus|sonnet|sol|astra|flash --name TITLE --task-file FILE [--fresh | --source-thread UUID] [--thread-id UUID] [--dry-run | --mcp-plan] [--wait started|completed] [--timeout SECONDS] [--project PATH] [--server URL] [--home PATH] [--cli PATH]\n--fresh creates an empty session without a base; otherwise fork the explicit source or configured base. Use --task TEXT instead of --task-file; --task-file - accepts stdin. Standalone fresh sessions default to approval-required/default; --runtime-mode and --interaction-mode override them. Managed fresh sessions inherit the master's modes. --environment NAME plans a managed worker on a linked machine (with --mcp-plan; --project is that machine's path, project title or ID). See references/conventions.md for names and fixed effort.");
     return;
   }
   requireValue(Boolean(values.task) !== Boolean(values["task-file"]), "Provide exactly one of --task or --task-file.");
@@ -291,13 +302,24 @@ async function main() {
   requireValue(!values["interaction-mode"] || (values.fresh && !values["mcp-plan"] && ["default", "plan"].includes(values["interaction-mode"])), "--interaction-mode is for standalone fresh sessions: default or plan.");
   const task = values["task-file"] ? readFileSync(values["task-file"] === "-" ? 0 : values["task-file"], "utf8") : values.task;
   requireValue(!(values["handoff-plan"] && values["mcp-plan"]), "Choose --handoff-plan or --mcp-plan.");
+  requireValue(!values.environment || ((values["mcp-plan"] || values["dry-run"]) && !values["handoff-plan"] && values.project),
+    "--environment plans a managed worker: use it with --mcp-plan (or --dry-run) and that machine's --project.");
   const input = {
     handoffPlan: values["handoff-plan"], selfFork: values["self-fork"], effort: values.effort, provider: values.provider, model: values.model, name: values.name, task,
-    threadId: values["thread-id"] ?? randomUUID(), project: resolveProject(values.project, process.cwd(), settings, { fresh: values.fresh || values["self-fork"] }),
+    threadId: values["thread-id"] ?? randomUUID(), environment: values.environment,
+    project: values.environment ? values.project : resolveProject(values.project, process.cwd(), settings, { fresh: values.fresh || values["self-fork"] }),
     sourceThreadId: values["source-thread"], fresh: values.fresh, mcpPlan: values["mcp-plan"],
     runtimeMode: values["runtime-mode"], interactionMode: values["interaction-mode"],
     dryRun: values["dry-run"] || values["mcp-plan"] || values["handoff-plan"], wait: values.wait };
-  const client = new T3Client({ server: values.server, home: values.home, cli: values.cli, timeout: Number(values.timeout) });
+  const local = new T3Client({ server: values.server, home: values.home, cli: values.cli, timeout: Number(values.timeout) });
+  let client = local;
+  if (values.environment) {
+    await local.connect();
+    try { input.localPeerEnvironments = (await local.rpc("server.getConfig", {}).promise).environment.capabilities?.peerEnvironments === true; }
+    finally { await local.close(); }
+    const { peerClient } = await import("./peers.mjs");
+    client = peerClient(values.environment, { home: values.home, timeout: Number(values.timeout) }).client;
+  }
   try {
     await client.connect();
     const result = await runFork(client, input, (value) => { if (!values["mcp-plan"] && !values["handoff-plan"]) console.log(JSON.stringify(value)); });

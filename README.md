@@ -33,4 +33,6 @@ Stay on `custom-stable`. Fetch official stable, main and nightly changes weekly 
 
 Use this package’s `customizations.json` (configured by `upstream.customizationsFile`) to record the supported behavior, upstream replacements and adapted-backport commits. Git ancestry alone cannot identify manually ported features. Update deployment records whenever a build is actually activated.
 
+To work across machines, link their T3 servers once with `t3w peer link SSH_ALIAS --local-url URL --remote-url URL` (tailnet-only HTTPS addresses, for example Tailscale Serve). Masters can then spawn and manage workers and message sessions on the other machine; see the skill's linked-environments section. `t3w peer check` retests both directions.
+
 For worker profile changes, use `t3w worker-profile --thread-id UUID --provider AD --model sol` to generate validated `t3_worker_control` input. For orchestration succession, see the global skill’s [handoff workflow](skills/t3-fork-session/references/orchestrator-handoff.md).

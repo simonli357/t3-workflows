@@ -18,14 +18,17 @@ export async function settleWorker(client, threadId) {
 async function main() {
   const { values } = parseArgs({ options: {
     "thread-id": { type: "string" }, server: { type: "string" }, home: { type: "string" }, cli: { type: "string" },
-    timeout: { type: "string", default: "60" }, help: { type: "boolean", short: "h" },
+    timeout: { type: "string", default: "60" }, environment: { type: "string" }, help: { type: "boolean", short: "h" },
   } });
   if (values.help || !values["thread-id"]) {
-    console.log("Usage: node settle-worker.mjs --thread-id UUID [--server URL] [--home PATH] [--cli PATH] [--timeout SECONDS]\nSettle an accepted worker this master owns and verify T3 marks it settled. Refuses while a turn is running.");
+    console.log("Usage: node settle-worker.mjs --thread-id UUID [--server URL] [--home PATH] [--cli PATH] [--timeout SECONDS] [--environment PEER]\nSettle an accepted worker this master owns and verify T3 marks it settled. Refuses while a turn is running.");
     if (!values.help) process.exitCode = 1;
     return;
   }
-  const client = new T3Client({ server: values.server, home: values.home, cli: values.cli, timeout: Number(values.timeout) });
+  // A worker on a linked machine is settled on that machine's server.
+  const client = values.environment
+    ? (await import("./peers.mjs")).peerClient(values.environment, { home: values.home, timeout: Number(values.timeout) }).client
+    : new T3Client({ server: values.server, home: values.home, cli: values.cli, timeout: Number(values.timeout) });
   try {
     await client.connect();
     console.log(JSON.stringify(await settleWorker(client, values["thread-id"]), null, 2));

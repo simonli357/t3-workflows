@@ -91,10 +91,10 @@ async function main() {
     turns: { type: "string", default: "3" }, before: { type: "string" },
     "message-id": { type: "string" }, offset: { type: "string", default: "0" }, chars: { type: "string", default: "16000" },
     server: { type: "string" }, home: { type: "string" }, cli: { type: "string" }, timeout: { type: "string", default: "60" },
-    help: { type: "boolean", short: "h" },
+    environment: { type: "string" }, help: { type: "boolean", short: "h" },
   } });
   if (values.help) {
-    console.log("Usage: node find-session.mjs 'session name' [--project NAME_OR_PATH_OR_ID] [--list]\nOr: --thread-id UUID [--turns 3] [--before CURSOR] [--message-id ID --offset 0 --chars 16000]\nConnection: --server URL --home PATH --cli PATH --timeout SECONDS\nExact names preferred, then case-insensitive substring matches. Ambiguous names return candidates only. Reads across accounts and projects; never messages, forks, or changes a session.");
+    console.log("Usage: node find-session.mjs 'session name' [--project NAME_OR_PATH_OR_ID] [--list]\nOr: --thread-id UUID [--turns 3] [--before CURSOR] [--message-id ID --offset 0 --chars 16000]\nConnection: --server URL --home PATH --cli PATH --timeout SECONDS, or --environment NAME for a linked machine\nExact names preferred, then case-insensitive substring matches. Ambiguous names return candidates only. Reads across accounts and projects; never messages, forks, or changes a session.");
     return;
   }
   if (positionals.length > 1 || (positionals.length && values["thread-id"])) throw new Error("Supply one quoted name or --thread-id, not both.");
@@ -103,7 +103,9 @@ async function main() {
   }
   if (Number(values.offset) && !values["message-id"]) throw new Error("--offset requires --message-id.");
   if (values.before && values["message-id"]) throw new Error("Use --before for older turns or --message-id for text continuation, not both.");
-  const client = new T3Client({ server: values.server, home: values.home, cli: values.cli, timeout: Number(values.timeout) });
+  const client = values.environment
+    ? (await import("./peers.mjs")).peerClient(values.environment, { home: values.home, timeout: Number(values.timeout) }).client
+    : new T3Client({ server: values.server, home: values.home, cli: values.cli, timeout: Number(values.timeout) });
   try {
     await client.connect();
     console.log(JSON.stringify(await lookupSession(client, { name: positionals[0], threadId: values["thread-id"], project: values.project,

@@ -1,6 +1,6 @@
 ---
 name: t3-fork-session
-description: Create fresh T3 sessions or fork existing conversations, manage workers with explicit or agent-selected account/model profiles, and find, read, or message other sessions. Use for T3 delegation, worker management, and session coordination; not unrelated work in the current session.
+description: Create fresh T3 sessions or fork existing conversations, manage workers with explicit or agent-selected account/model profiles, and find, read, or message other sessions, including on linked machines. Use for T3 delegation, worker management, and session coordination; not unrelated work in the current session.
 ---
 
 # T3 Sessions and Workers
@@ -162,8 +162,9 @@ with `--thread-id UUID` or `--project NAME_OR_PATH_OR_ID`.
   messages are identified for explicit reading. Do not treat a truncated excerpt
   as the entire result.
 - `--server`, `--home`, `--cli`, and `--timeout` use the existing connection
-  options. A missing local match is not proof the session is absent on another
-  machine; query the relevant connected environment when known.
+  options; `--environment <label>` searches a linked machine. A missing local
+  match is not proof the session is absent on another machine; query the
+  relevant environment when known.
 
 Read the result, then inspect the referenced files, PRs, commits, or evidence
 in its reported working directory as needed for the user's task. Checkpoint
@@ -217,10 +218,47 @@ poll it from the active source turn. Use `t3_orchestrator_handoff_status` to ins
 or cancel a handoff before ownership transfer. A worker spawn alone does not
 transfer the orchestrator role.
 
+## Work across linked environments
+
+`t3w peer list` shows the T3 environments this one is linked to, for example
+the laptop (`sliara`) and the Windows desktop (`myalien`). Linked servers call
+each other directly over their tailnet-only HTTPS addresses. SSH is only used
+to create the link. Check `peerEnvironments` in `t3w environment` on both
+machines before relying on it.
+
+- **Messages:** add `environment: "<label>"` to `t3_session_send`. Resolve the
+  recipient with `t3w find NAME --environment <label>`. While that machine is
+  offline the message waits on this server and is retried every 30 seconds:
+  `queued` means waiting, `dispatched` means the other environment accepted it.
+  Messages from another machine name it ("in environment myalien"); reply with
+  that `environment`. The reporting rules below apply unchanged.
+- **Workers:** plan with `t3w spawn` or `t3w fork` plus `--environment <label>`,
+  `--project` set to that machine's path, project title or project ID, and
+  `--mcp-plan`. Pass the JSON, which includes `environment`, to `t3_worker_spawn`.
+  The worker runs on that machine under its provider accounts, so choose the
+  account from that machine's capacity, and check the alias is logged in there.
+  Forks use a base on that machine.
+- After spawning, `t3_worker_list/read/send/wait/control` work as for local
+  workers through this server. The list shows `environment`, and
+  `state: "unreachable"` while the machine is offline. Reports reach the master,
+  or its handoff successor. Settle an accepted remote worker with
+  `settle-worker.mjs --environment <label> --thread-id UUID`.
+- Not supported: handing orchestration to a successor on another machine, and
+  `refresh-bases` for another machine's bases (run it there).
+
+To link two machines, run `t3w peer link <ssh-alias> --local-url <this
+server's tailnet URL> --remote-url <that server's tailnet URL>` once. It issues a
+one-year token on each side, stores each side's link, and checks both
+directions. `t3w peer check` retests the links; `t3w peer remove <label>`
+removes one. A peer token grants full control of the other T3 server, so keep
+both addresses tailnet-only and revoke a removed peer's token on that machine
+(`t3 auth session revoke`).
+
 ## Message another session
 
 When the user authorizes sessions to coordinate, use `t3_session_send` for peers,
-other masters, or another master's workers in the same T3 environment. Resolve
+other masters, or another master's workers, in this T3 environment or a linked
+one (see above). Resolve
 the recipient by name with `find-session.mjs` first; disambiguate duplicate names.
 Supply its `threadId`, a new `clientRequestId`, and the message as `prompt`.
 Reuse the same ID and identical content on retries. T3 attaches the authenticated
