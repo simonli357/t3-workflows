@@ -9,6 +9,18 @@
   },
   "contracts": [
     {
+      "name": "orchestrator succession and profile controls",
+      "requirement": "Authenticated masters can transfer directly owned workers to a new base-forked, self-forked or fresh successor, with an explicit destination account/model/effort. Queue self-forks until source turn ends; preserve assignments and read cursors; reroute undelivered and future reports atomically; retain idempotent retries and cancellation. Agents can generate validated worker profile changes without mutating sessions.",
+      "capability": "orchestratorHandoff",
+      "status": "implemented; deployment pending"
+    },
+    {
+      "name": "fresh managed sessions",
+      "requirement": "Create a managed worker without a fork source, using the selected project and account/model profile and the master's permission/interaction modes. Preserve ownership, durable assignments, retries, reporting, and follow-ups for both fresh and forked workers.",
+      "capability": "workerFreshSessions",
+      "status": "implemented; deployment pending"
+    },
+    {
       "name": "prepared base forks",
       "localCommits": [
         "48b496c4",

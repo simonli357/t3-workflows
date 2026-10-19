@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 import { accounts, models, settings, configPath, resolveProject, projectProfile } from "../skills/t3-fork-session/scripts/config.mjs";
 import { T3Client } from "../skills/t3-fork-session/scripts/fork-session.mjs";
 const [command, ...args] = process.argv.slice(2);
-const routes = { fork: "../skills/t3-fork-session/scripts/fork-session.mjs", capacity: "../skills/t3-fork-session/scripts/check-capacity.mjs", find: "../skills/t3-fork-session/scripts/find-session.mjs", "refresh-bases": "../skills/t3-fork-session/scripts/refresh-bases.mjs", install: "./install.mjs", doctor: "./install.mjs", "check-upstream": "./check-upstream.mjs", "install-schedule": "./install-schedule.mjs" };
+const routes = { "worker-profile": "../skills/t3-fork-session/scripts/worker-profile.mjs", fork: "../skills/t3-fork-session/scripts/fork-session.mjs", capacity: "../skills/t3-fork-session/scripts/check-capacity.mjs", find: "../skills/t3-fork-session/scripts/find-session.mjs", "refresh-bases": "../skills/t3-fork-session/scripts/refresh-bases.mjs", install: "./install.mjs", doctor: "./install.mjs", "check-upstream": "./check-upstream.mjs", "install-schedule": "./install-schedule.mjs" };
 try {
   if (command === "environment") {
     const client = new T3Client({ timeout: 30 });
@@ -22,12 +22,12 @@ try {
     run("git", ["pull", "--ff-only"]);
     run(process.execPath, [fileURLToPath(new URL("./run-checks.mjs", import.meta.url))]);
     run(process.execPath, [fileURLToPath(new URL("./install.mjs", import.meta.url))]);
-  } else if (routes[command]) {
-    const r = spawnSync(process.execPath, [fileURLToPath(new URL(routes[command], import.meta.url)), ...(command === "doctor" ? ["--check"] : []), ...args], { stdio: "inherit" });
+  } else if (command === "spawn" || routes[command]) {
+    const r = spawnSync(process.execPath, [fileURLToPath(new URL(routes[command === "spawn" ? "fork" : command], import.meta.url)), ...(command === "spawn" ? ["--fresh"] : []), ...(command === "doctor" ? ["--check"] : []), ...args], { stdio: "inherit" });
     if (r.error) throw r.error;
     process.exitCode = r.status ?? 1;
   } else {
-    console.log("t3w profile [--project NAME_OR_PATH]\nt3w capacity [--cached]\nt3w fork --project NAME_OR_PATH --provider ACCOUNT --model MODEL --name TITLE --task TEXT --mcp-plan\nt3w find NAME\nt3w refresh-bases --project NAME_OR_PATH [--apply]\nt3w check-upstream [--review] [--force]\nt3w environment | install | doctor | update | install-schedule");
+    console.log("t3w profile [--project NAME_OR_PATH]\nt3w capacity [--cached]\nt3w spawn --project NAME_OR_PATH --provider ACCOUNT --model MODEL --name TITLE --task-file FILE --mcp-plan\nt3w fork --project NAME_OR_PATH --provider ACCOUNT --model MODEL --name TITLE --task-file FILE [--source-thread UUID] --mcp-plan\nt3w find NAME\nt3w refresh-bases --project NAME_OR_PATH [--apply]\nt3w check-upstream [--review] [--force]\nt3w environment | install | doctor | update | install-schedule");
     if (command && !["help", "--help", "-h"].includes(command)) process.exitCode = 1;
   }
 } catch (error) { console.error(error.message); process.exitCode = 1; }

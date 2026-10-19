@@ -15,11 +15,13 @@ without an epic. For other work use `<short-description>_worker_<model>`.
 Preserve full issue references in the assignment. Scandy's exact conventions are
 in [scandy.md](scandy.md); apply them only to the Scandy profile.
 
-Resolve bases by project and name each time, rejecting missing or ambiguous
-matches. Explicit source sessions must use the selected account and project.
-Preserve source modes, working directory, and branch. Never assign work to a base
-or modify its context while forking. Reuse an owned worker for corrections.
+Choose a fresh session when inherited context is unnecessary; no base is required.
+For forks, resolve bases by project and name each time, rejecting missing or
+ambiguous matches. Ordinary worker forks require the source account and project. Orchestrator
+handoffs can change the destination profile after copying the source. Preserve source modes, working directory, and branch. Never assign work
+to a base or modify its context while forking. Reuse an owned worker for corrections.
 
-Model efforts come from the configured fixed profile and are checked against the
-live catalog. The tools do not rank accounts or choose models. Preserve supported
+Model efforts default to the configured fixed profile. An explicit user choice
+or authorized profile change can override effort with an advertised value.
+Selections are checked against the live catalog. The tools do not rank accounts or choose models. Preserve supported
 inherited options, explicit constraints, and the chosen profile on retries.

@@ -15,6 +15,8 @@ test('global project resolution uses current checkout/worktree and explicit prof
   execFileSync('git',['worktree','add','-b','test',worktree],{cwd:repo,stdio:'ignore'});
   const config={projects:{group:{repositories:[repo],baseProject:path.join(dir,'bases')}}};
   assert.equal(resolveProject(undefined,worktree,config),path.join(dir,'bases'));
+  assert.equal(resolveProject(undefined,worktree,config,{fresh:true}),realpathSync.native(repo));
+  assert.equal(resolveProject('group',dir,config,{fresh:true}),path.join(dir,'bases'));
   assert.equal(resolveProject('group',dir,config),path.join(dir,'bases'));
   assert.equal(resolveProject(undefined,worktree,{}),realpathSync.native(repo));
   assert.throws(()=>resolveProject(undefined,dir,{}),/No project resolved/);

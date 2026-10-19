@@ -14,13 +14,14 @@ const samePath = (a, b) => process.platform === "win32" ? canonical(a).toLowerCa
 export function projectProfile(project) {
   return Object.entries(settings.projects ?? {}).find(([key, p]) => key === project || (p.baseProject && samePath(p.baseProject, project)))?.[1];
 }
-export function resolveProject(explicit, cwd = process.cwd(), config = settings) {
+export function resolveProject(explicit, cwd = process.cwd(), config = settings, { fresh = false } = {}) {
   let selected = explicit ?? process.env.T3_WORKFLOWS_PROJECT;
   if (selected && config.projects?.[selected]) return canonical(config.projects[selected].baseProject);
   if (selected) return canonical(selected);
   let root;
   try { root = path.dirname(execFileSync("git", ["-C", cwd, "rev-parse", "--path-format=absolute", "--git-common-dir"], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim()); }
   catch { root = canonical(cwd); }
+  if (fresh && existsSync(path.join(root, ".git"))) return canonical(root);
   const matches = Object.values(config.projects ?? {}).filter((p) => [p.baseProject, ...(p.repositories ?? [])].some((r) => r && samePath(r, root)));
   if (matches.length > 1) throw new Error("Multiple workflow profiles match this checkout; specify --project PROFILE_OR_PATH.");
   if (matches.length === 1) return canonical(matches[0].baseProject);

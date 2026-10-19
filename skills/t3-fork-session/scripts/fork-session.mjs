@@ -26,6 +26,12 @@ function sameSelection(left, right) {
 }
 
 export function planFork(shell, config, input) {
+  requireValue(!input.selfFork || (input.handoffPlan && !input.fresh && !input.sourceThreadId), "--self-fork requires --handoff-plan and cannot combine with --fresh or --source-thread.");
+  requireValue(!(input.fresh && input.sourceThreadId), "Choose a fresh session or --source-thread, not both.");
+  if (input.handoffPlan) requireValue(config.environment?.capabilities?.orchestratorHandoff === true,
+    "This T3 server needs orchestratorHandoff support before preparing a handoff.");
+  if (input.fresh && input.mcpPlan) requireValue(config.environment?.capabilities?.workerFreshSessions === true,
+    "This T3 server does not support managed fresh sessions yet. Activate a build with workerFreshSessions support; do not substitute an unmanaged session.");
   const providerName = input.provider?.toUpperCase();
   const choice = PROVIDERS[providerName];
   requireValue(choice, `Select a provider: ${Object.keys(PROVIDERS).join(", ")}.`);
@@ -36,31 +42,36 @@ export function planFork(shell, config, input) {
   requireValue(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(input.threadId), "Destination thread ID must be a UUID.");
   const project = single(shell.projects.filter((p) => path.resolve(p.workspaceRoot) === path.resolve(input.project)), "T3 project for this workspace");
   const sourceName = input.sourceThreadId ?? baseFor(providerName, input.project);
-  const source = single(shell.threads.filter((t) => t.projectId === project.id && (input.sourceThreadId ? t.id === input.sourceThreadId : t.title.toLowerCase() === baseFor(providerName, input.project))), `${sourceName} in ${project.title}`);
-  requireValue(source.id !== input.threadId, "The destination must differ from the source session.");
-  requireValue(source.modelSelection.instanceId === choice.instanceId, `${source.title} belongs to another provider instance.`);
+  const source = (input.fresh || input.selfFork) ? null : single(shell.threads.filter((t) => t.projectId === project.id && (input.sourceThreadId ? t.id === input.sourceThreadId : t.title.toLowerCase() === baseFor(providerName, input.project))), `${sourceName} in ${project.title}`);
+  if (source) {
+    requireValue(source.id !== input.threadId, "The destination must differ from the source session.");
+    requireValue(input.handoffPlan || source.modelSelection.instanceId === choice.instanceId, `${source.title} belongs to another provider instance.`);
+  }
   const provider = single(config.providers.filter((p) => p.instanceId === choice.instanceId), `configured ${providerName} provider`);
   requireValue(provider.enabled && provider.installed && provider.availability !== "unavailable", `Provider ${providerName} is disabled or unavailable.`);
   const profile = MODELS[modelName];
   const model = single(provider.models.filter((m) => m.slug === profile.slug), `${profile.slug} model for ${providerName}`);
   const descriptors = model.capabilities?.optionDescriptors ?? [];
+  const chosenEffort = input.effort ?? profile.effort;
   const effort = descriptors.find((d) => d.id === profile.option);
-  requireValue(effort?.options?.some((o) => o.id === profile.effort), `${profile.slug} does not advertise ${profile.effort} effort.`);
-  const options = (source.modelSelection.options ?? []).filter((o) => {
+  requireValue(effort?.options?.some((o) => o.id === chosenEffort), `${profile.slug} does not advertise ${chosenEffort} effort.`);
+  const options = (source?.modelSelection.options ?? []).filter((o) => {
     const descriptor = descriptors.find((d) => d.id === o.id);
     return descriptor && o.id !== profile.option && (descriptor.type !== "select" || descriptor.options.some((v) => v.id === o.value));
   });
-  options.push({ id: profile.option, value: profile.effort });
+  options.push({ id: profile.option, value: chosenEffort });
   const destination = shell.threads.find((t) => t.id === input.threadId);
-  if (!destination) {
+  if (source && !destination && !input.handoffPlan) {
     requireValue(!source.session?.activeTurnId && source.session?.status !== "starting" && source.latestTurn?.state !== "running", `${source.title} is busy; wait for its turn to finish.`);
   }
   return {
-    threadId: input.threadId, sourceThreadId: source.id, base: source.title,
+    ...(input.selfFork ? { selfFork: true } : {}),
+    threadId: input.threadId, sourceThreadId: source?.id ?? null, base: source?.title ?? null,
     projectId: project.id, project: project.workspaceRoot, name: input.name.trim(),
     provider: providerName, modelSelection: { instanceId: choice.instanceId, model: profile.slug, options },
-    effort: profile.effort, runtimeMode: source.runtimeMode, interactionMode: source.interactionMode,
-    branch: source.branch, worktreePath: source.worktreePath,
+    effort: chosenEffort, runtimeMode: source?.runtimeMode ?? input.runtimeMode ?? "approval-required",
+    interactionMode: source?.interactionMode ?? input.interactionMode ?? "default",
+    branch: source?.branch ?? null, worktreePath: source?.worktreePath ?? null,
   };
 }
 
@@ -215,9 +226,21 @@ export async function runFork(client, input, emit = () => {}) {
   if (accepted) {
     requireValue(accepted.text === input.task && existing.title === plan.name && sameSelection(existing.modelSelection, plan.modelSelection), "This destination already has a different task, name, or model. Do not reuse its ID.");
   } else {
-    const forked = await client.fork({ sourceThreadId: plan.sourceThreadId, threadId: plan.threadId });
-    requireValue(forked.threadId === plan.threadId, "T3 returned a different destination thread ID.");
-    await client.dispatch({ type: "thread.meta.update", commandId: `worker:${plan.threadId}:configure`, threadId: plan.threadId, title: plan.name, modelSelection: plan.modelSelection });
+    if (plan.sourceThreadId) {
+      const forked = await client.fork({ sourceThreadId: plan.sourceThreadId, threadId: plan.threadId });
+      requireValue(forked.threadId === plan.threadId, "T3 returned a different destination thread ID.");
+      await client.dispatch({ type: "thread.meta.update", commandId: `worker:${plan.threadId}:configure`, threadId: plan.threadId, title: plan.name, modelSelection: plan.modelSelection });
+    } else if (!existing) {
+      await client.dispatch({ type: "thread.create", commandId: `worker:${plan.threadId}:create`, threadId: plan.threadId,
+        projectId: plan.projectId, title: plan.name, modelSelection: plan.modelSelection,
+        runtimeMode: plan.runtimeMode, interactionMode: plan.interactionMode,
+        branch: plan.branch, worktreePath: plan.worktreePath, createdAt: new Date().toISOString() });
+    } else {
+      requireValue(existing.messages.length === 0 && existing.title === plan.name && sameSelection(existing.modelSelection, plan.modelSelection)
+        && existing.runtimeMode === plan.runtimeMode && existing.interactionMode === plan.interactionMode
+        && existing.branch === plan.branch && existing.worktreePath === plan.worktreePath,
+      "This destination already has different history or settings. Do not reuse its ID.");
+    }
     const configured = await client.thread(plan.threadId);
     requireValue(configured.title === plan.name && sameSelection(configured.modelSelection, plan.modelSelection), "T3 did not apply the worker name, model, and effort.");
     await client.dispatch({
@@ -239,36 +262,46 @@ export function usageLimit(thread, now = new Date()) {
 }
 
 export function workerInput(plan, task) {
-  return { sourceThreadId: plan.sourceThreadId, threadId: plan.threadId,
+  return { ...(plan.selfFork ? { selfFork: true } : {}), ...(plan.sourceThreadId ? { sourceThreadId: plan.sourceThreadId } : { projectId: plan.projectId }), threadId: plan.threadId,
     title: plan.name, modelSelection: plan.modelSelection, prompt: task };
 }
 
 async function main() {
   const { values } = parseArgs({ options: {
+    effort: { type: "string" }, "handoff-plan": { type: "boolean", default: false },
     provider: { type: "string" }, model: { type: "string" }, name: { type: "string" },
     task: { type: "string" }, "task-file": { type: "string" }, "thread-id": { type: "string" },
     "source-thread": { type: "string" },
+    "self-fork": { type: "boolean", default: false },
+    fresh: { type: "boolean", default: false },
+    "runtime-mode": { type: "string" }, "interaction-mode": { type: "string" },
     project: { type: "string" }, server: { type: "string" }, home: { type: "string" }, cli: { type: "string" },
     timeout: { type: "string", default: "180" }, wait: { type: "string", default: "started" },
     "mcp-plan": { type: "boolean", default: false },
     "dry-run": { type: "boolean", default: false }, help: { type: "boolean", short: "h" },
   } });
   if (values.help) {
-    console.log("Usage: node fork-session.mjs --provider XL|ES|ARA|AD|SL|DS --model opus|sonnet|sol|astra|flash --name TITLE --task-file FILE [--thread-id UUID] [--source-thread UUID] [--dry-run | --mcp-plan] [--wait started|completed] [--timeout SECONDS] [--project PATH] [--server URL] [--home PATH] [--cli PATH]\nUse --task TEXT instead of --task-file; --task-file - reads stdin. See references/conventions.md for names and fixed effort.");
+    console.log("--handoff-plan emits input for t3_orchestrator_handoff, allowing a busy self source and a different destination account. --effort overrides the profile default only when advertised.\nUsage: node fork-session.mjs --provider XL|ES|ARA|AD|SL|DS --model opus|sonnet|sol|astra|flash --name TITLE --task-file FILE [--fresh | --source-thread UUID] [--thread-id UUID] [--dry-run | --mcp-plan] [--wait started|completed] [--timeout SECONDS] [--project PATH] [--server URL] [--home PATH] [--cli PATH]\n--fresh creates an empty session without a base; otherwise fork the explicit source or configured base. Use --task TEXT instead of --task-file; --task-file - accepts stdin. Standalone fresh sessions default to approval-required/default; --runtime-mode and --interaction-mode override them. Managed fresh sessions inherit the master's modes. See references/conventions.md for names and fixed effort.");
     return;
   }
   requireValue(Boolean(values.task) !== Boolean(values["task-file"]), "Provide exactly one of --task or --task-file.");
   requireValue(["started", "completed"].includes(values.wait), "--wait must be started or completed.");
   requireValue(Number(values.timeout) > 0 && Number(values.timeout) <= 900, "--timeout must be between 1 and 900 seconds.");
+  requireValue(!values["runtime-mode"] || (values.fresh && !values["mcp-plan"] && ["approval-required", "full-access"].includes(values["runtime-mode"])), "--runtime-mode is for standalone fresh sessions: approval-required or full-access.");
+  requireValue(!values["interaction-mode"] || (values.fresh && !values["mcp-plan"] && ["default", "plan"].includes(values["interaction-mode"])), "--interaction-mode is for standalone fresh sessions: default or plan.");
   const task = values["task-file"] ? readFileSync(values["task-file"] === "-" ? 0 : values["task-file"], "utf8") : values.task;
-  const input = { provider: values.provider, model: values.model, name: values.name, task,
-    threadId: values["thread-id"] ?? randomUUID(), project: resolveProject(values.project),
-    sourceThreadId: values["source-thread"], dryRun: values["dry-run"] || values["mcp-plan"], wait: values.wait };
+  requireValue(!(values["handoff-plan"] && values["mcp-plan"]), "Choose --handoff-plan or --mcp-plan.");
+  const input = {
+    handoffPlan: values["handoff-plan"], selfFork: values["self-fork"], effort: values.effort, provider: values.provider, model: values.model, name: values.name, task,
+    threadId: values["thread-id"] ?? randomUUID(), project: resolveProject(values.project, process.cwd(), settings, { fresh: values.fresh || values["self-fork"] }),
+    sourceThreadId: values["source-thread"], fresh: values.fresh, mcpPlan: values["mcp-plan"],
+    runtimeMode: values["runtime-mode"], interactionMode: values["interaction-mode"],
+    dryRun: values["dry-run"] || values["mcp-plan"] || values["handoff-plan"], wait: values.wait };
   const client = new T3Client({ server: values.server, home: values.home, cli: values.cli, timeout: Number(values.timeout) });
   try {
     await client.connect();
-    const result = await runFork(client, input, (value) => { if (!values["mcp-plan"]) console.log(JSON.stringify(value)); });
-    if (values["mcp-plan"]) console.log(JSON.stringify(workerInput(result, input.task)));
+    const result = await runFork(client, input, (value) => { if (!values["mcp-plan"] && !values["handoff-plan"]) console.log(JSON.stringify(value)); });
+    if (values["mcp-plan"] || values["handoff-plan"]) console.log(JSON.stringify(workerInput(result, input.task)));
     if (!input.dryRun) console.log(JSON.stringify(result));
   } catch (error) {
     console.error(JSON.stringify({ error: error.message, threadId: input.threadId, retry: "Keep this destination ID and the same task when retrying." }));

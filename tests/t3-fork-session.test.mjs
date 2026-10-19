@@ -39,6 +39,12 @@ class FakeClient {
   }
   async dispatch(command) {
     this.calls.push(command.type);
+    if (command.type === "thread.create") {
+      this.shell.threads.push({ ...command, id: command.threadId, messages: [] });
+      this.created++;
+      if (this.failCreate) { this.failCreate = false; throw new Error("Disconnected after session creation"); }
+      return;
+    }
     const thread = this.shell.threads.find((t) => t.id === command.threadId);
     if (command.type === "thread.meta.update") Object.assign(thread, { title: command.title, modelSelection: command.modelSelection });
     else {
@@ -221,4 +227,102 @@ test("MCP plans retain each selected base, fixed model profile, and literal task
       assert.equal(input.ownerThreadId, undefined);
     }
   }
+});
+
+test("fresh plans need no bases and retain the chosen account, effort, project and literal task", () => {
+  const data = fixture();
+  data.shell.threads = [];
+  data.config.environment = { capabilities: { workerFreshSessions: true } };
+  for (const [provider, profile] of Object.entries(PROVIDERS)) {
+    for (const model of profile.models) {
+      const plan = planFork(data.shell, data.config, { ...data.input, fresh: true, mcpPlan: true, provider, model });
+      assert.equal(plan.sourceThreadId, null);
+      assert.equal(plan.base, null);
+      const input = workerInput(plan, data.input.task);
+      assert.equal(Object.hasOwn(input, "sourceThreadId"), false);
+      assert.equal(input.projectId, data.shell.projects[0].id);
+      assert.equal(input.prompt, data.input.task);
+      assert.deepEqual(input.modelSelection, { instanceId: profile.instanceId, model: MODELS[model].slug,
+        options: [{ id: MODELS[model].option, value: MODELS[model].effort }] });
+      assert.equal(Object.hasOwn(input, "runtimeMode"), false);
+    }
+  }
+});
+
+test("fresh plans reject conflicting sources, unsupported servers and unavailable providers", () => {
+  const data = fixture();
+  assert.throws(() => planFork(data.shell, data.config, { ...data.input, fresh: true, sourceThreadId: data.shell.threads[0].id }), /not both/);
+  assert.throws(() => planFork(data.shell, data.config, { ...data.input, fresh: true, mcpPlan: true }), /does not support managed fresh/);
+  data.config.providers.find((p) => p.instanceId === "codex").enabled = false;
+  assert.throws(() => planFork(data.shell, data.config, { ...data.input, fresh: true }), /disabled or unavailable/);
+});
+
+test("standalone fresh sessions start with only their task and safely reuse interrupted creation or assignment", async () => {
+  for (const failure of [null, "failCreate", "failDispatch"]) {
+    const data = fixture();
+    data.shell.threads = [];
+    const client = new FakeClient(data);
+    const input = { ...data.input, fresh: true, runtimeMode: "full-access", interactionMode: "plan" };
+    if (failure) {
+      client[failure] = true;
+      await assert.rejects(runFork(client, input), /Disconnected/);
+    }
+    await runFork(client, input);
+    await runFork(client, input);
+    assert.equal(client.created, 1);
+    assert.equal(client.calls.includes("fork"), false);
+    assert.equal(client.calls.filter((c) => c === "thread.turn.start").length, 1);
+    const worker = data.shell.threads[0];
+    assert.equal(worker.messages.length, 1);
+    assert.equal(worker.messages[0].text, input.task);
+    assert.equal(worker.runtimeMode, "full-access");
+    assert.equal(worker.interactionMode, "plan");
+    assert.equal(worker.branch, null);
+    assert.equal(worker.worktreePath, null);
+  }
+});
+
+test("fresh dry runs do not create sessions and retries reject unrelated history", async () => {
+  const data = fixture();
+  const client = new FakeClient(data);
+  const input = { ...data.input, fresh: true };
+  await runFork(client, { ...input, dryRun: true });
+  assert.deepEqual(client.calls, []);
+  await runFork(client, input);
+  const worker = data.shell.threads.at(-1);
+  worker.messages = [{ id: "unrelated", role: "user", text: "other task" }];
+  await assert.rejects(runFork(client, input), /different history or settings/);
+});
+
+test("handoff plans allow a busy self source and another account, while ordinary forks reject them", () => {
+  const data = fixture();
+  data.config.environment = { capabilities: { orchestratorHandoff: true } };
+  const source = data.shell.threads.find((t) => t.modelSelection.instanceId === "codex");
+  source.session = { activeTurnId: "running", status: "running" };
+  const input = { ...data.input, sourceThreadId: source.id, provider: "ARA", model: "opus", handoffPlan: true };
+  const plan = planFork(data.shell, data.config, input);
+  assert.equal(plan.sourceThreadId, source.id);
+  assert.equal(plan.modelSelection.instanceId, "claudeAgent");
+  assert.equal(plan.effort, "xhigh");
+  assert.throws(() => planFork(data.shell, data.config, { ...input, handoffPlan: false }), /another provider/);
+  assert.throws(() => planFork(data.shell, { ...data.config, environment: {} }, input), /orchestratorHandoff/);
+});
+
+test("an explicit advertised effort overrides the default without changing model or provider", () => {
+  const data = fixture();
+  const plan = planFork(data.shell, data.config, { ...data.input, effort: "high" });
+  assert.equal(plan.effort, "high");
+  assert.deepEqual(plan.modelSelection.options.find((o) => o.id === "reasoningEffort"), { id: "reasoningEffort", value: "high" });
+  assert.equal(plan.modelSelection.instanceId, "codex");
+  assert.throws(() => planFork(data.shell, data.config, { ...data.input, effort: "imaginary" }), /does not advertise/);
+});
+
+test("self-fork plans need no base or caller-provided master identity", () => {
+  const data = fixture();
+  data.config.environment = { capabilities: { orchestratorHandoff: true } };
+  data.shell.threads = [];
+  const plan = planFork(data.shell, data.config, { ...data.input, selfFork: true, handoffPlan: true });
+  assert.equal(workerInput(plan, data.input.task).selfFork, true);
+  assert.equal(workerInput(plan, data.input.task).sourceThreadId, undefined);
+  assert.throws(() => planFork(data.shell, data.config, { ...data.input, selfFork: true }), /requires --handoff-plan/);
 });

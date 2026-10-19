@@ -1,12 +1,15 @@
 ---
 name: t3-fork-session
-description: Create and manage workers in T3 Code; fork the selected base or existing session with an explicit or agent-selected provider/model profile, find sessions by name, read results, send follow-up assignments, and coordinate between sessions. Use when asked to delegate to or manage T3 workers, message another T3 session, or inspect its work by name. Do not use for unrelated work in the current session.
+description: Create fresh T3 sessions or fork existing conversations, manage workers with explicit or agent-selected account/model profiles, and find, read, or message other sessions. Use for T3 delegation, worker management, and session coordination; not unrelated work in the current session.
 ---
 
-# T3 Fork Session
+# T3 Sessions and Workers
 
-Create a real T3 session through the custom build's native fork operation. The
-fork includes the provider conversation and the visible T3 history.
+Create a fresh session when the assignment does not need inherited conversation
+context. Fork a prepared base or an existing session when its context is useful
+or the user asks for it. Both modes support managed workers with durable
+ownership, reporting, and follow-ups. A fresh session needs no base; a fork
+includes the provider conversation and visible T3 history.
 
 Run `t3w profile` (or `t3w profile --project NAME_OR_PATH`) to read the project
 profile, account mappings, and fixed model efforts. Read
@@ -81,19 +84,24 @@ The helper adds `--local-only` to prevent recursion. SSH uses existing credentia
 it never logs in interactively. A failed host remains unknown, not zero workers.
 
 Briefly state the chosen account/model/effort and the evidence for the choice.
-Then supply explicit `--provider` and `--model` to the existing fork helper;
-its deterministic validation remains unchanged. Resolve the model before naming
+Then supply explicit `--provider` and `--model` to the session helper.
+It validates the selected profile against the live catalog. Resolve the model before naming
 its suffix. Changing an existing worker requires the explicit control below;
 never silently substitute a provider on retry.
 
 ## Create the worker
 
-1. Default to the matching base in the resolved workflow project. For a new
-   worker that needs an existing worker's implementation context, inspect the
-   live session list and pass its current ID with `--source-thread UUID`.
-   The source must be idle and on the selected provider account. Otherwise the
-   helper resolves the base by name. A project profile may share bases across repositories. For corrections to a worker this master already owns,
-   use `t3_worker_send` below instead of creating another fork.
+1. Choose the context needed for the assignment:
+   - **Fresh session:** use `t3w spawn` (equivalent to the helper's `--fresh`).
+     Select the target project; no source session or prepared base is needed.
+     Managed fresh sessions start in that project's directory, with the master's
+     permission and interaction modes and no inherited conversation.
+   - **Fork:** use `t3w fork`. Pass `--source-thread UUID` for a specific existing
+     session, or omit it to use the configured account base. The source must be
+     idle and on the selected account. Forks preserve its modes, branch, and
+     worktree. A project profile may share bases across repositories.
+   For corrections to a worker this master already owns, use `t3_worker_send`
+   below in the same session.
 2. Choose the title according to the conventions. Keep the assigned task intact,
    including issue repository, number, acceptance criteria, and user constraints.
    When reusing an existing session as the source of a new worker, explicitly
@@ -103,24 +111,31 @@ never silently substitute a provider on retry.
    that ID for the entire operation, including retries.
 4. Inside T3, generate the validated MCP input with the helper below, then
    pass its JSON unchanged to `t3_worker_spawn` on T3's MCP server. The helper's
-   `--mcp-plan` only resolves and validates; it does not fork or send work.
+   `--mcp-plan` only resolves and validates; it does not create a session or send work.
    Use a task file for multiline text; `--task-file -` also accepts stdin.
    Never interpolate task text into shell code. Delete temporary task files.
 5. Report the worker name, provider, model, fixed effort, thread ID, and observed
    assignment state. `queued` or `submitted` means accepted, not completed work.
 
 ```bash
-node <skill-directory>/scripts/fork-session.mjs \
+t3w spawn --project /absolute/path/to/project \
   --provider SL --model sol --name 'c344_camera_sol' \
   --thread-id <destination-uuid> --task-file /absolute/path/to/task.txt --mcp-plan
 ```
 
-T3 obtains the master's identity from the authenticated MCP call. The base is
-only the source of inherited context; it is not the master. Keep the returned
+For a fork, replace `spawn` with `fork` and optionally add `--source-thread UUID`.
+The skill directory's `scripts/fork-session.mjs` supports both modes directly
+with `--fresh` selecting a new session. Do not combine `--fresh` and `--source-thread`.
+
+T3 obtains the master's identity from the authenticated MCP call. Fresh plans
+specify `projectId` and omit `sourceThreadId`; fork plans specify `sourceThreadId`.
+The source supplies inherited context and is independent of the master. Keep the returned
 worker ID and assignment `requestId` (`latestRequest.requestId` on spawn).
 The server saves ownership and the validated selection for subsequent turns.
-Do not replace prepared-base forks with upstream `delegate_task`: that operation
-starts from a task prompt and does not preserve this workflow's base context.
+Use the custom worker tools for managed creation in either mode. Upstream
+`delegate_task` does not preserve this workflow's ownership and fork semantics.
+If the server lacks `workerFreshSessions`, the planner reports that a server
+update is needed; an unmanaged session cannot provide the same reporting lifecycle.
 
 ## Find another session's work by name
 
@@ -164,6 +179,8 @@ would take too long.
 
 ## Manage an existing worker
 
+When reassigning an existing session, rename it to reflect its current issue/task and model.
+
 - `t3_worker_list`: rediscover this master's workers after compaction or restart.
 - `t3_worker_read`: read new replies. The server saves the read cursor; omitting
   it continues from the last read. For long results, continue using
@@ -171,19 +188,34 @@ would take too long.
   `hasMore` is true. Set `includeProgress: true` for streaming/tool activity.
 - `t3_worker_send`: send a correction or new assignment to the **same thread**,
   with a fresh `clientRequestId`. Keep that ID and identical prompt on retries.
-  It preserves the account, model, reasoning effort, and base-inherited modes.
+  It preserves the account, model, reasoning effort, and saved permission/interaction modes.
   A busy worker queues the prompt durably; it is not interrupted.
 - `t3_worker_wait`: wait briefly for a specific assignment using its `requestId`.
   Timeout does not cancel work. Prefer automatic reports for long tasks.
 - `t3_worker_control`: disable/re-enable reports, or cancel a queued assignment
   using `cancelRequestId`. Supply `modelSelection: {instanceId, model, options}`
   to change an owned worker's account/provider/model and saved profile together.
-  Choose a compatible profile and fixed effort using the capacity tools and
+  Options include reasoning effort; explicit user choices override profile defaults.
+  Generate validated input with `t3w worker-profile --thread-id UUID --provider AD
+  --model sol [--effort high]`, then pass the returned JSON to `t3_worker_control`.
+  Omitted account/model stay current. This helper only reads and validates.
+  Choose a compatible profile and default effort using the capacity tools and
   conventions; honor the user's explicit restrictions. The current turn continues;
   queued/future assignments use the new profile in the same T3 session. Switching
   providers uses a context handoff rather than the old provider's native history.
   To accept a change already made in the UI, use `adoptCurrentSettings: true`
   instead. Failed assignments are not retried. Use T3's Stop control for running work.
+
+## Hand orchestration to a successor
+
+Read [orchestrator-handoff.md](references/orchestrator-handoff.md) when moving
+orchestration to a new session. `t3_orchestrator_handoff` creates the successor
+from a prepared base, a self-fork, or fresh context, applies its selected profile,
+and transfers existing workers and pending reports. A self-fork waits for this
+turn to end. Keep the returned ID and end the old orchestrator's turn; do not
+poll it from the active source turn. Use `t3_orchestrator_handoff_status` to inspect
+or cancel a handoff before ownership transfer. A worker spawn alone does not
+transfer the orchestrator role.
 
 ## Message another session
 
@@ -318,14 +350,18 @@ The helper uses the running T3 server and CLI authentication. Run `t3w profile`
 to inspect the resolved project and its conventions; `--project PROFILE_OR_PATH`
 selects another project. Configuration lives in `~/.config/t3-workflows/config.json`
 or `T3_WORKFLOWS_CONFIG`. From a Git worktree, resolution uses its primary checkout,
-then the matching configured project profile. The global skill location never
+then the matching configured project profile for forks. Fresh sessions use the
+current repository without redirecting to a shared base project; an explicit
+profile name selects that profile's project in either mode. The global skill location never
 selects a project. Outside a checkout, specify `--project`. `--server`, `--home`, and `--cli` override
 connection settings; their environment variables are `T3_FORK_SERVER_URL`,
 `T3CODE_HOME`, and `T3_FORK_CLI`. `T3_FORK_TOKEN` supplies an existing bearer
 credential. Do not print or commit credentials. Requires Node 22 or newer.
 
 Outside T3, the original helper without `--mcp-plan` still creates a standalone
-worker. It has no authenticated T3 master and cannot provide automatic reports
+session, fresh or forked. Fresh standalone sessions default to `approval-required`
+and `default`; `--runtime-mode full-access` and `--interaction-mode plan` select
+other modes. It has no authenticated T3 master and cannot provide automatic reports
 to an external terminal session. State that limitation instead of inventing a
 master ID. Inside T3, missing worker tools mean the worker-enabled custom server
 must be installed and the provider session reconnected; do not silently fall
@@ -337,8 +373,8 @@ for startup. `--timeout 180` bounds the helper's wait in seconds.
 
 ## Failures and retries
 
-- If the source is busy, wait for its current turn to finish before creating the
-  worker. Never interrupt the source or assign the task to it.
+- For a fork, if the source is busy, wait for its current turn to finish.
+  Never interrupt the source or assign the task to it. Fresh sessions need no idle source.
 - Keep the emitted destination ID if an operation fails or the connection drops.
   Retry the same command with that ID and the same task. The helper reuses a
   partial fork and does not send an accepted task twice.
