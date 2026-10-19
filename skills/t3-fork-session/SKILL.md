@@ -1,6 +1,6 @@
 ---
 name: t3-fork-session
-description: Create fresh T3 sessions or fork existing conversations, manage workers with explicit or agent-selected account/model profiles, and find, read, or message other sessions, including on linked machines. Use for T3 delegation, worker management, and session coordination; not unrelated work in the current session.
+description: Create fresh T3 sessions or fork existing conversations, manage workers with explicit or agent-selected account/model profiles, and find, read, or message other sessions, including on linked machines. Use for T3 delegation, worker management, and session coordination; not unrelated work in the current session. When the user says "renew master", hand this master to a successor session.
 ---
 
 # T3 Sessions and Workers
@@ -215,6 +215,12 @@ workers, their queued assignments and undelivered reports to the successor, and
 their later `t3_worker_report` reports go there; workers need no new instructions.
 Renew when this conversation has been compacted, when the user asks, or at a calm
 point in a long run.
+
+"renew master" is the user's keyword for this. It authorizes the steps below
+without further questions: a fresh successor on this master's project, account,
+model and effort, titled with the next generation number. "renew master from base"
+starts the successor from the account's prepared base instead. Any account, model
+or title the user adds with the keyword overrides these defaults.
 
 1. Act on reports that need a decision now, or list them in the prompt.
 2. Write the context prompt to a temporary file with the template in
