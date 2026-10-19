@@ -6,12 +6,15 @@ import { T3Client, planFork, PROVIDERS, MODELS } from "./fork-session.mjs";
 const { values } = parseArgs({ options: {
   "thread-id": { type: "string" }, provider: { type: "string" }, model: { type: "string" },
   effort: { type: "string" }, server: { type: "string" }, home: { type: "string" }, cli: { type: "string" },
-  timeout: { type: "string", default: "30" }, help: { type: "boolean" },
+  timeout: { type: "string", default: "30" }, environment: { type: "string" }, help: { type: "boolean" },
 } });
 if (values.help) {
-  console.log("t3w worker-profile --thread-id UUID [--provider ACCOUNT] [--model MODEL] [--effort EFFORT]\nReads current settings and emits validated t3_worker_control input; changes nothing. Omitted account/model stay current. An effort-only edit retains other options; a model/account change uses fixed profile defaults unless --effort is supplied.");
+  console.log("t3w worker-profile --thread-id UUID [--provider ACCOUNT] [--model MODEL] [--effort EFFORT] [--environment PEER]\n--environment validates a worker on a linked machine against that machine's accounts. Reads current settings and emits validated t3_worker_control input; changes nothing. Omitted account/model stay current. An effort-only edit retains other options; a model/account change uses fixed profile defaults unless --effort is supplied.");
 } else {
-  const client = new T3Client({ ...values, timeout: Number(values.timeout) });
+  // A worker on a linked machine is validated against that machine's catalog.
+  const client = values.environment
+    ? (await import("./peers.mjs")).peerClient(values.environment, { home: values.home, timeout: Number(values.timeout) }).client
+    : new T3Client({ ...values, timeout: Number(values.timeout) });
   try {
     if (!values["thread-id"] || !(values.provider || values.model || values.effort)) throw new Error("Supply --thread-id and at least one profile change.");
     await client.connect();
@@ -21,7 +24,8 @@ if (values.help) {
     const project = shell.projects.find((p) => p.id === thread.projectId);
     const provider = values.provider ?? Object.keys(PROVIDERS).find((key) => PROVIDERS[key].instanceId === thread.modelSelection.instanceId);
     const model = values.model ?? Object.keys(MODELS).find((key) => MODELS[key].slug === thread.modelSelection.model);
-    const plan = planFork(shell, config, { fresh: true, threadId: randomUUID(), project: project?.workspaceRoot,
+    const plan = planFork(shell, config, { fresh: true, threadId: randomUUID(), environment: values.environment,
+      project: values.environment ? project?.id : project?.workspaceRoot,
       provider, model, effort: values.effort, name: thread.title, task: "Validate worker settings" });
     const descriptor = MODELS[Object.keys(MODELS).find((key) => MODELS[key].slug === plan.modelSelection.model)];
     const options = thread.modelSelection.instanceId === plan.modelSelection.instanceId && thread.modelSelection.model === plan.modelSelection.model

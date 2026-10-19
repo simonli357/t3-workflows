@@ -1,6 +1,6 @@
 ---
 name: t3-fork-session
-description: Create fresh T3 sessions or fork existing conversations, manage workers with explicit or agent-selected account/model profiles, and find, read, or message other sessions, including on linked machines. Use for T3 delegation, worker management, and session coordination; not unrelated work in the current session. When the user says "renew yourself", hand this master to a successor session.
+description: Create fresh T3 sessions or fork existing conversations, manage workers with explicit or agent-selected account/model profiles, and find, read, or message other sessions, including on linked machines. Use for T3 delegation, worker management, and session coordination; not unrelated work in the current session. User keywords "renew yourself" (hand this master to a successor), "switch <worker> to <account>" (change a worker's provider in place) and "renew <worker>" (replace a worker with a new session).
 ---
 
 # T3 Sessions and Workers
@@ -193,19 +193,32 @@ When reassigning an existing session, rename it to reflect its current issue/tas
   A busy worker queues the prompt durably; it is not interrupted.
 - `t3_worker_wait`: wait briefly for a specific assignment using its `requestId`.
   Timeout does not cancel work. Prefer automatic reports for long tasks.
-- `t3_worker_control`: disable/re-enable reports, or cancel a queued assignment
-  using `cancelRequestId`. Supply `modelSelection: {instanceId, model, options}`
-  to change an owned worker's account/provider/model and saved profile together.
-  Options include reasoning effort; explicit user choices override profile defaults.
-  Generate validated input with `t3w worker-profile --thread-id UUID --provider AD
-  --model sol [--effort high]`, then pass the returned JSON to `t3_worker_control`.
-  Omitted account/model stay current. This helper only reads and validates.
-  Choose a compatible profile and default effort using the capacity tools and
-  conventions; honor the user's explicit restrictions. The current turn continues;
-  queued/future assignments use the new profile in the same T3 session. Switching
-  providers uses a context handoff rather than the old provider's native history.
-  To accept a change already made in the UI, use `adoptCurrentSettings: true`
-  instead. Failed assignments are not retried. Use T3's Stop control for running work.
+- `t3_worker_control`: disable/re-enable reports, cancel a queued assignment with
+  `cancelRequestId`, change the profile with `modelSelection` (below), or accept a
+  change already made in the UI with `adoptCurrentSettings: true`. Failed
+  assignments are not retried. Use T3's Stop control for running work.
+
+### Switch or renew a worker
+
+The user says these to the worker's master. Either keyword authorizes the change
+without further questions; without an account, choose one with the selection policy.
+
+- **"switch <worker> to <account> [model] [effort]"** keeps the session and its
+  conversation. `t3w worker-profile --thread-id ID --provider ACCOUNT [--model M]
+  [--effort E] [--environment PEER]` validates the change without making it
+  (omitted values stay current; effort defaults to the profile's). Pass its JSON
+  to `t3_worker_control`. A running turn finishes on the old profile and later
+  turns use the new one; another provider gets a summary of the conversation, not
+  its native history. A turn that already stopped, for example on a usage limit,
+  is not retried: resume it with `t3_worker_send`. The title keeps its model suffix.
+- **"renew <worker> [on <account> [model]]"** replaces it with a new session that
+  starts from a context prompt, fresh unless the user adds "from base". Once the
+  worker has no running turn (the user can Stop it in T3), write its full
+  assignment, progress, branch and worktree, evidence and next steps to a file
+  with the reporting instruction, plan with `t3w spawn --mcp-plan` (or `t3w fork`)
+  and pass the JSON to `t3_worker_spawn`. Use the new model suffix, adding 2 to the
+  keyword if the name would not change (`c344_camera_opus` → `c344_camera2_opus`).
+  Then settle the old worker.
 
 ## Hand orchestration to a successor
 
