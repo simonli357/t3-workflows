@@ -55,32 +55,30 @@ rates/API prices into subscription percentages. Session age includes idle time;
 non-tool wall time is not measured model compute. Use these measurements as
 evidence for the agent's decision, not an automatic account ranking.
 
-The agent makes the selection:
+For automatic account/model selection, read [selection-policy.md](references/selection-policy.md).
+It defines the Claude preference, Codex's below-70%-weekly exception, explicit
+banked-reset priorities, and sustainable pacing. The agent applies this policy;
+the scripts supply evidence and never rank or route work.
 
-- Respect any specified account, model, or source session; choose only missing
-  parts and compatible profiles from the conventions. An explicit source fixes
-  the provider account. Keep the profile's fixed reasoning effort.
-- Consider the task's capability needs, remaining weekly and five-hour capacity
-  where reported, reset times, model-specific limits, and current account load
-  together. Percentages from different plans are not equal token budgets. Avoid
-  piling new workers onto an already busy account when a suitable alternative
-  has room. There is no fixed score, model preference, or routing formula.
-- Keep model-specific windows separate from account-wide ones; do not invent a
-  model-to-window mapping from an unfamiliar label. Do not assume the Codex
-  harness's reported limits describe DeepSeek's API allowance.
-- Missing, stale, or failed readings are uncertainty, not unlimited capacity.
-  Do not assume a passed reset timestamp has replenished quota without a fresh
-  reading. If the evidence is insufficient for a reasonable choice, state the
-  gap and ask only for the missing decision. Never change billing or redeem
-  credits to make room without authorization.
-- Counts cover the queried T3 environment, not terminal sessions or other hosts.
-  If relevant connected environments are available, inspect them too and combine
-  loads for the same account; never add their duplicate quota percentages.
-  Account aliases can share a login; the report's identity groups are hints,
-  not proof of independent or shared backend allowances.
-- Before each additional spawn, recheck active sessions and account for workers
-  just queued by this master. Reuse a recent quota snapshot when still relevant;
-  do not hammer refreshes or create status polling loops.
+Use `t3w capacity --all-hosts` for selection when peers are configured. Use
+`t3w capacity --all-hosts --load-only` for a quick count of current agents by
+account, model and effort without refreshing quotas. `loadByAccount` combines
+host counts; `hosts` retains each host's observations and failures. Local-only
+inspection is `t3w capacity --local-only [--load-only]`.
+
+Each account's `load.byModelEffort` separates `working`, `starting`, `waiting`,
+`backgroundOnly`, and `uncertain`. Masters count too; worker names do not prove
+ownership. Missing effort is null, not medium. These are T3 session counts,
+not native-subagent or terminal-process counts, and active turns can be waiting
+on tools. Check `complete`, login identity hints, per-host readings, and
+uncertain state before estimating spare capacity. Never add quota percentages
+from different hosts.
+
+Configure peers in the global `~/.config/t3-workflows/config.json` under
+`capacity.remoteEnvironments`, each with `label`, SSH alias `ssh`, and `command`
+pointing to that host's `node /path/to/t3-workflows/skills/t3-fork-session/scripts/check-capacity.mjs`.
+The helper adds `--local-only` to prevent recursion. SSH uses existing credentials;
+it never logs in interactively. A failed host remains unknown, not zero workers.
 
 Briefly state the chosen account/model/effort and the evidence for the choice.
 Then supply explicit `--provider` and `--model` to the existing fork helper;

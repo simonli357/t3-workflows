@@ -2,6 +2,8 @@ import { PROVIDERS } from "../skills/t3-fork-session/scripts/fork-session.mjs";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { capacityReport, checkCapacity } from "../skills/t3-fork-session/scripts/check-capacity.mjs";
+import { combineCapacity, sessionActivity } from "../skills/t3-fork-session/scripts/capacity-load.mjs";
+import { checkHosts } from "../skills/t3-fork-session/scripts/capacity-hosts.mjs";
 
 const now = new Date("2026-10-07T12:00:00Z");
 const active = (id, instanceId, title, extra = {}) => ({ id, projectId: "one", title, modelSelection: { instanceId, model: "claude-opus-5-5" }, latestTurn: { state: "running" }, ...extra });
@@ -106,4 +108,79 @@ test("capacity exposes server measurements without ranking and handles older ser
     assert.equal(report.measurementError, supported ? null : "404 not found");
     assert.equal(report.selected, undefined);
   }
+});
+
+test("load groups selected models and efforts without turning missing effort into a default", () => {
+  const thread = (id, model, effort, extra = {}) => active(id, "codex", id, {
+    modelSelection: { instanceId: "codex", model, options: effort ? [{ id: "reasoningEffort", value: effort }] : [] }, ...extra });
+  const shell = { threads: [
+    thread("one", "gpt-6-astra", "high"), thread("two", "gpt-6-astra", "xhigh"),
+    thread("three", "gpt-6-astra", "high"), thread("unknown", "gpt-6.1-sol", null),
+    thread("wait", "gpt-6.1-sol", "max", { hasPendingUserInput: true }),
+    thread("monitor", "gpt-6.1-sol", "max", { latestTurn: { state: "completed" }, backgroundLiveness: "monitoring" }),
+    thread("inconsistent", "gpt-6.1-sol", "max", { session: { status: "ready", activeTurnId: null } }),
+    thread("starting", "gpt-6.1-sol", "max", { latestTurn: null, session: { status: "starting" } }),
+  ] };
+  const sl = capacityReport(shell, { providers: [] }, { now }).accounts.find((a) => a.account === "SL");
+  assert.deepEqual([sl.load.working, sl.load.starting, sl.load.waiting, sl.load.backgroundOnly, sl.load.uncertain], [4, 1, 1, 1, 1]);
+  assert.equal(sl.load.byModelEffort.find((r) => r.effort === "high").working, 2);
+  assert.equal(sl.load.byModelEffort.find((r) => r.effort === "xhigh").working, 1);
+  assert.equal(sl.load.byModelEffort.find((r) => r.effort === null).working, 1);
+  assert.equal(sessionActivity(thread("idle", "gpt-6-astra", "high", { latestTurn: { state: "completed" }, session: { status: "ready" } })), null);
+  assert.equal(sessionActivity(thread("stale", "gpt-6-astra", "high", { latestTurn: { turnId: "old", completedAt: now.toISOString() }, session: { activeTurnId: "old", status: "running" } })), "uncertain");
+});
+
+test("an account switch in flight is attributed to the running account with unknown model and effort", () => {
+  const shell = { threads: [active("switch", "codex_antoine", "master", {
+    session: { status: "running", activeTurnId: "turn", providerInstanceId: "codex" },
+    modelSelection: { instanceId: "codex_antoine", model: "gpt-6.1-sol", options: [{ id: "reasoningEffort", value: "max" }] },
+  })] };
+  const report = capacityReport(shell, { providers: [] }, { now });
+  assert.equal(report.accounts.find((a) => a.account === "AD").load.working, 0);
+  const sl = report.accounts.find((a) => a.account === "SL");
+  assert.equal(sl.load.working, 1);
+  assert.deepEqual([sl.load.byModelEffort[0].model, sl.load.byModelEffort[0].effort], [null, null]);
+});
+
+test("pacing exposes time until reset without forecasting usage or treating an expired reset as replenished", () => {
+  const report = capacityReport({ threads: [] }, { providers: [{ instanceId: "codex", models: [], usageLimits: {
+    resetCredits: { availableCount: 2, nextCreditId: "do-not-expose" }, windows: [
+      { id: "fresh", usedPercent: 20, resetsAt: "2026-10-07T16:00:00Z" },
+      { id: "expired", usedPercent: 100, resetsAt: "2026-10-07T11:00:00Z" },
+      { id: "unknown", usedPercent: 20 },
+    ],
+  } }] }, { now });
+  const sl = report.accounts.find((a) => a.account === "SL");
+  assert.deepEqual(sl.quota.windows.map((w) => [w.secondsUntilReset, w.sustainablePercentPerHour]), [[14400, 20], [0, null], [null, null]]);
+  assert.equal(sl.quota.windows[1].usedPercent, 100);
+  assert.deepEqual(sl.quota.resetCredits, { availableCount: 2, nextExpiresAt: null });
+});
+
+test("multi-host load deduplicates environments, retains quota observations, and flags different logins", () => {
+  const host = (label, environmentId, email, count) => ({ label, report: capacityReport({ threads: Array.from({ length: count }, (_, i) => active(String(i), "codex", "master")) }, {
+    environment: { environmentId, label }, providers: [{ instanceId: "codex", driver: "codex", models: [], auth: { email }, usageLimits: { windows: [{ id: "weekly", usedPercent: 40 }] } }],
+  }, { now }) });
+  const combined = combineCapacity([host("laptop", "one", "a@example.test", 2), host("same-laptop", "one", "a@example.test", 2), host("desktop", "two", "b@example.test", 3), { label: "offline", error: "unreachable" }]);
+  assert.equal(combined.complete, false);
+  assert.equal(combined.hosts[1].duplicateEnvironment, true);
+  const sl = combined.loadByAccount.find((a) => a.account === "SL");
+  assert.equal(sl.working, 5);
+  assert.equal(sl.loginIdentity, "different-logins");
+  assert.equal(sl.hosts.length, 2);
+  assert.equal(sl.quota, undefined);
+  assert.equal(combined.hosts[0].report.accounts.find((a) => a.account === "SL").quota.windows[0].usedPercent, 40);
+});
+
+test("remote failures remain explicit, and load-only inspection never probes quotas or reads transcripts", async () => {
+  const calls = [];
+  const client = {
+    rpc(tag) { calls.push(tag); assert.equal(tag, "server.getConfig"); return { promise: Promise.resolve({ environment: { environmentId: "local" }, providers: [] }) }; },
+    async http(route) { calls.push(route); assert.equal(route, "/api/orchestration/shell"); return { threads: [] }; },
+  };
+  const local = await checkCapacity(client, { loadOnly: true });
+  const combined = await checkHosts(local, [{ label: "remote" }], { readRemote: async () => { throw new Error("SSH unavailable"); } });
+  assert.deepEqual(calls.sort(), ["/api/orchestration/shell", "server.getConfig"]);
+  assert.equal(combined.complete, false);
+  assert.equal(combined.hosts[1].error, "SSH unavailable");
+  assert.equal(combined.hosts[1].report, undefined);
 });
