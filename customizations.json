@@ -43,7 +43,9 @@
         "c7d1216c",
         "b0aeba36",
         "79ba0c50",
-        "5cc2e4d38"
+        "5cc2e4d38",
+        "c776dc596",
+        "952b8007e"
       ],
       "requirement": "Workers explicitly report assignment done or genuinely blocked through authenticated t3_worker_report; turn endings/progress/restarts alone do not notify. Preserve direct-input ownership, durable deduplicated reports, and disabled notifications. Runtime failures/input requests remain automatic. Masters review latest output/evidence and give an actionable disposition without acknowledgment chatter.",
       "upstreamDisposition": "Audit native/app-owned task reporting separately from custom forked workers."
@@ -187,21 +189,23 @@
   ],
   "deployments": {
     "sliara": {
-      "version": "0.0.45+custom.22",
-      "runningVersion": "0.0.45+custom.22",
-      "sourceCommit": "9e3cc4ecd",
-      "serverBuildCommit": "d2991d517",
+      "version": "0.0.45+custom.24",
+      "runningVersion": "0.0.45+custom.24",
+      "sourceCommit": "952b8007e",
+      "serverBuildCommit": "952b8007e",
       "status": "active",
       "orchestrationProtocolVersion": 1,
-      "timestamp": "2026-10-19T03:16:23.133853+00:00",
+      "timestamp": "2026-10-19T15:50:24+00:00",
       "serviceRestarted": true,
-      "verifiedResumedSessions": 4,
-      "preservedSessionCount": 336,
+      "verifiedResumedSessions": 6,
+      "preservedSessionCount": 346,
       "capabilities": [
         "workerFreshSessions",
         "orchestratorHandoff"
       ],
-      "validation": "60 focused server tests, 21 workflow tests, lint/typecheck and isolated packaged startup passed. Live capabilities verified; session IDs and provider settings preserved; all four active sessions resumed."
+      "validation": "55 WorkerControls/OrchestrationReactor tests, server typecheck, targeted lint, isolated live-data startup. Live: 346 threads preserved, 6 running sessions continued, worker queue passes p50 249 ms.",
+      "executableSha256": "4827c35aeda05d2f6e78ba7fa74adb812b5cde9931dbae93d48d987215644b8e",
+      "continueThreadsAfterServerUpdate": true
     },
     "myalien": {
       "version": "0.0.45+custom.22",
@@ -262,6 +266,18 @@
       "version": "0.0.45+custom.16",
       "feature": "Apply done-or-genuinely-blocked reporting instructions to peer messages and all reporting channels; remove intermediate-findings exception from skill and tool descriptions",
       "validation": "44 existing worker/runtime-instruction tests; targeted lint; executable build; global skill and provider runtime instructions updated"
+    },
+    {
+      "commit": "c776dc596",
+      "version": "0.0.45+custom.23",
+      "feature": "Worker queue no longer starves worker tools: paused outcomes leave the rescan set, event-triggered passes coalesce, report/message/send persist without the lock and deliver immediately only when the queue is free",
+      "validation": "55 tests; staged as custom.23 but shipped in custom.24"
+    },
+    {
+      "commit": "952b8007e",
+      "version": "0.0.45+custom.24",
+      "feature": "Held reports skip re-dispatching their already accepted visible copy through the engine queue on every pass",
+      "validation": "Isolated live-data replay: passes 0.1-0.4 s vs 1.5-8.4 s on custom.22; activated 2026-10-19 15:50 UTC, 6 running sessions continued"
     }
   ]
 }
