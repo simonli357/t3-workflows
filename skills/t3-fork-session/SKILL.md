@@ -209,14 +209,33 @@ When reassigning an existing session, rename it to reflect its current issue/tas
 
 ## Hand orchestration to a successor
 
-Read [orchestrator-handoff.md](references/orchestrator-handoff.md) when moving
-orchestration to a new session. `t3_orchestrator_handoff` creates the successor
-from a prepared base, a self-fork, or fresh context, applies its selected profile,
-and transfers existing workers and pending reports. A self-fork waits for this
-turn to end. Keep the returned ID and end the old orchestrator's turn; do not
-poll it from the active source turn. Use `t3_orchestrator_handoff_status` to inspect
-or cancel a handoff before ownership transfer. A worker spawn alone does not
-transfer the orchestrator role.
+A master's turns cost more as its history grows. Renew it by moving orchestration
+to a new session that starts from a written context prompt. T3 moves this master's
+workers, their queued assignments and undelivered reports to the successor, and
+their later `t3_worker_report` reports go there; workers need no new instructions.
+Renew when this conversation has been compacted, when the user asks, or at a calm
+point in a long run.
+
+1. Act on reports that need a decision now, or list them in the prompt.
+2. Write the context prompt to a temporary file with the template in
+   [orchestrator-handoff.md](references/orchestrator-handoff.md).
+3. Generate one ID with `node -p 'crypto.randomUUID()'` and plan the successor:
+   `t3w spawn --handoff-plan --project P --provider ACCOUNT --model MODEL --name TITLE --thread-id ID --task-file FILE`
+   starts from the prompt alone; `t3w fork --handoff-plan` with the same flags
+   starts from the account's prepared base. Keep this master's account and model
+   unless capacity says otherwise. Do not renew with `--self-fork`: it copies the
+   history you are shedding.
+4. Pass the JSON unchanged to `t3_orchestrator_handoff`. `completed` means the
+   workers moved and the successor's first turn is queued; check `startupState`
+   and `startupError`.
+5. Tell the user the successor's title and ID, stop background guards that wake
+   this session, and end the turn. Do not direct the moved workers again. If a
+   message still arrives here, forward it unchanged to the successor with
+   `t3_session_send` and do nothing else.
+
+The reference also covers the other modes, retries and failure states.
+`t3_orchestrator_handoff_status` inspects or cancels a handoff before ownership
+transfers. A worker spawn alone does not transfer the orchestrator role.
 
 ## Work across linked environments
 
@@ -294,6 +313,9 @@ Include this instruction in every worker's initial assignment:
 > investigate, wait, or try another approach within your authority; resolve
 > what you can yourself. Progress stays in this worker conversation. This rule
 > also applies to `t3_session_send` and any other channel.
+
+Do not tell workers to report by messaging a master's session ID. Reports follow
+ownership to a successor master; a message to a remembered ID reaches the old session.
 
 Masters must not use worker messages as a chat:
 
