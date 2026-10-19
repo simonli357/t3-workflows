@@ -73,7 +73,7 @@ export function capacityReport(shell, config, { now = new Date(), refreshErrors 
       "Counts cover this T3 environment only, across all projects; terminal sessions and other machines are not visible.",
       "Worker counts use the naming convention, not ownership. All active sessions also consume capacity. Use t3_worker_list for this master's actual workers and queued assignments.",
       "Background liveness includes monitoring and does not prove ongoing model usage. Missing quota windows do not mean unlimited capacity; refresh failures may retain older data.",
-      "Claude accounts report no usage windows; limitedUntil comes from the latest usage-limit rejection seen in this environment and is null when none is active.",
+      "Provider quota availability varies by account and runtime. limitedUntil comes from the latest usage-limit rejection seen in this environment and is null when none is active.",
       "Shared-account grouping is best effort; aliases and model-specific windows may share quota. This report does not rank accounts or select a model.",
     ],
   };
@@ -89,6 +89,15 @@ export async function checkCapacity(client, { refresh = true } = {}) {
   }
   const [shell, config] = await Promise.all([client.http("/api/orchestration/shell"), client.rpc("server.getConfig", {}).promise]);
   const report = capacityReport(shell, config, { refreshErrors });
+  try {
+    const measurements = await client.http("/api/orchestration/usage-measurements");
+    if (!Array.isArray(measurements?.monitoredInstanceIds)) throw new Error("Server did not return usage measurements.");
+    report.measurements = measurements;
+    report.measurementError = null;
+  } catch (error) {
+    report.measurements = null;
+    report.measurementError = String(error?.message ?? error);
+  }
   for (const account of report.accounts) {
     for (const session of account.limitedSessions) Object.assign(session, { usageLimit: usageLimit(await client.thread(session.threadId)) });
     const resets = account.limitedSessions.map((s) => s.usageLimit).filter((l) => l?.active).map((l) => l.resetsAt).sort();

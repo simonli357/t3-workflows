@@ -88,3 +88,22 @@ test("worker counts include descriptive issue names with and without epics", () 
   assert.equal(sl.activeWorkersByNameCount, valid.length);
   assert.deepEqual(sl.activeSessions.filter(s => s.workerByNamingConvention).map(s => s.title), valid);
 });
+
+test("capacity exposes server measurements without ranking and handles older servers", async () => {
+  for (const supported of [true, false]) {
+    const measurements = { monitoredInstanceIds: ["codex", "claudeAgent"], profiles: [], turns: [], accounts: [] };
+    const client = {
+      rpc() { return { promise: Promise.resolve({ providers: [] }) }; },
+      async http(route) {
+        if (route === "/api/orchestration/shell") return { threads: [] };
+        assert.equal(route, "/api/orchestration/usage-measurements");
+        if (!supported) throw new Error("404 not found");
+        return measurements;
+      },
+    };
+    const report = await checkCapacity(client, { refresh: false });
+    assert.deepEqual(report.measurements, supported ? measurements : null);
+    assert.equal(report.measurementError, supported ? null : "404 not found");
+    assert.equal(report.selected, undefined);
+  }
+});

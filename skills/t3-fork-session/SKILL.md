@@ -39,10 +39,21 @@ well for this master's actual workers and pending assignments. Names are not
 proof of ownership. Idle/settled history does not count as working; background
 monitoring is listed but is not necessarily consuming model quota.
 
-Claude accounts report no usage windows. Each account's `limitedSessions` lists
+Quota windows depend on the provider/runtime and account. Each account's `limitedSessions` lists
 sessions its provider rejected with a usage limit, with the reset time, and
 `limitedUntil` is the latest reset still in the future. Do not spawn or resend on
 an account before its `limitedUntil`; choose another allowed account or wait.
+
+`t3_usage_measurements` provides retained context size, session age, turn/tool/API
+timing, token/cache usage, account quota rates and model/effort/context-band token
+baselines. `t3w capacity` includes the same report when the server supports it.
+Collection is opt-in through server `usageMeasurementInstanceIds`; this installation
+measures **SL and ARA only**, excluding shared accounts from history and baselines.
+Check `monitoredInstanceIds`, sample counts, ages and missing values. Quota rates
+are account-wide; do not attribute a shared delta to one worker or convert token
+rates/API prices into subscription percentages. Session age includes idle time;
+non-tool wall time is not measured model compute. Use these measurements as
+evidence for the agent's decision, not an automatic account ranking.
 
 The agent makes the selection:
 
