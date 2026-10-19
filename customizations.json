@@ -12,13 +12,13 @@
       "name": "orchestrator succession and profile controls",
       "requirement": "Authenticated masters can transfer directly owned workers to a new base-forked, self-forked or fresh successor, with an explicit destination account/model/effort. Queue self-forks until source turn ends; preserve assignments and read cursors; reroute undelivered and future reports atomically; retain idempotent retries and cancellation. Agents can generate validated worker profile changes without mutating sessions.",
       "capability": "orchestratorHandoff",
-      "status": "active on sliara and myalien in custom stable .22"
+      "status": "active on sliara and myalien in custom stable .24"
     },
     {
       "name": "fresh managed sessions",
       "requirement": "Create a managed worker without a fork source, using the selected project and account/model profile and the master's permission/interaction modes. Preserve ownership, durable assignments, retries, reporting, and follow-ups for both fresh and forked workers.",
       "capability": "workerFreshSessions",
-      "status": "active on sliara and myalien in custom stable .22"
+      "status": "active on sliara and myalien in custom stable .24"
     },
     {
       "name": "prepared base forks",
@@ -208,13 +208,13 @@
       "continueThreadsAfterServerUpdate": true
     },
     "myalien": {
-      "version": "0.0.45+custom.22",
-      "runningVersion": "0.0.45+custom.22",
+      "version": "0.0.45+custom.24",
+      "runningVersion": "0.0.45+custom.24",
       "status": "active",
-      "serverBuildCommit": "d2991d517",
-      "serverArchiveSha256": "67ffe02ba1a373c3c311b27b0a44a4495fedbd2ae1aa08c47e55b01c0ee3814b",
+      "serverBuildCommit": "952b8007e",
+      "serverArchiveSha256": "f0e3eb986f053add78246d4721339711b8e6703ae837d31c8a16307b1cc5c7cd",
       "orchestrationProtocolVersion": 1,
-      "timestamp": "2026-10-19T03:16:23.133853+00:00",
+      "timestamp": "2026-10-19T16:32:40+00:00",
       "desktopRestarted": true,
       "activeSessionsBeforeRestart": 0,
       "preservedSessionCount": 1,
@@ -222,12 +222,13 @@
         "codex",
         "claudeAgent"
       ],
-      "validation": "Isolated Electron/Windows startup and live capability checks passed. 21 workflow tests passed on Windows. Existing session, provider settings, GUI assets and native files preserved; desktop reopened in interactive SessionId 1.",
-      "sourceCommit": "9e3cc4ecd",
+      "validation": "Repacked server.asar: 7 server files replaced, 4561 files and 16 unpacked native files unchanged. Isolated Electron startup on Windows reported custom.24 with fresh workers and handoff. Live: 1 thread preserved, provider settings unchanged, all five subscription accounts authenticated; desktop reopened in interactive SessionId 1.",
+      "sourceCommit": "952b8007e",
       "capabilities": [
         "workerFreshSessions",
         "orchestratorHandoff"
-      ]
+      ],
+      "rollbackArchive": "C:/Users/simon/t3-fork-install/server-custom22.asar"
     }
   },
   "localFixes": [
