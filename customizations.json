@@ -185,9 +185,21 @@
       "verifiedResumedSessions": 9
     },
     "myalien": {
-      "runningVersion": "0.0.45+custom.4",
-      "status": "not-changed-in-this-batch",
-      "observation": "last verified during global-tooling installation; weekly checker queries live version"
+      "version": "0.0.45+custom.21",
+      "runningVersion": "0.0.45+custom.21",
+      "status": "active",
+      "serverBuildCommit": "600a924dc",
+      "serverArchiveSha256": "cb9675dd8efb734477a0c1d40f7b175ba207e5054e77a0f7fd1135a7be83c56e",
+      "orchestrationProtocolVersion": 1,
+      "timestamp": "2026-10-19T02:40:00.736Z",
+      "desktopRestarted": true,
+      "activeSessionsBeforeRestart": 0,
+      "preservedSessionCount": 1,
+      "measurementInstanceIds": [
+        "codex",
+        "claudeAgent"
+      ],
+      "validation": "Isolated Electron/Windows startup and authenticated measurement API passed; live provider configuration and session count preserved; SL/ARA samples persisted; combined laptop/MyAlien capacity report passed."
     }
   },
   "localFixes": [
