@@ -1,38 +1,31 @@
 # Orchestrator handoff
 
-## Renew a long-running master
+## Renew a master
 
-Renewal is a handoff to a fresh or base-forked successor whose only knowledge of
-the work is the context prompt below. Keep the role and increment a generation
-number in its title, for example `simulator7_es_master` → `simulator8_es_master`.
-On accounts with usage measurements, compactions or `latestContextTokens` nearing
-`contextCapacityTokens` in `t3_usage_measurements` mean it is time to renew.
-
-Write what the successor needs to act, usually one to three pages. Point to files,
-branches, PRs and reports rather than pasting them. Use this template:
+On measured accounts, compactions or `latestContextTokens` nearing
+`contextCapacityTokens` in `t3_usage_measurements` also signal renewal. Give the
+successor what it needs to act, usually one to three pages, and point to files,
+branches, PRs and reports instead of pasting them:
 
 ```text
-You are <successor title> (<successor ID>), the new master. You take over from
+You are <successor title> (<successor ID>), the new master, taking over from
 <old title> (<old ID>). Its workers are now yours and report to you.
 
-Objective: the user's goal, in their words, and what finished means.
-Standing instructions: permissions, what needs the user's approval, account and
-  budget rules (with expiry dates), anything the user said not to do.
-Decisions so far: settled choices and the reason, so they are not reopened.
-Workers: one line each with title, ID, environment, account/model, current
-  assignment, state, and what to check next.
-Peers: other masters or sessions you coordinate with, with title, ID,
-  environment, and what they expect from you.
+Objective: the user's goal in their words, and what finished means.
+Standing instructions: permissions, approvals needed, account/budget rules with
+  expiry, anything the user ruled out.
+Decisions so far, with reasons, so they are not reopened.
+Workers, one line each: title, ID, environment, account/model, assignment, state,
+  next check.
+Peers you coordinate with: title, ID, environment, what they expect.
 Open items and next actions, in order.
-Evidence: paths to reports, branches, PRs and logs.
-Guards: background monitors or scripts that wake the master, with the command to
-  restart them so they target <successor ID>.
+Evidence: paths to reports, branches, PRs, logs.
+Guards that wake the master, with the command to restart them for <successor ID>.
 ```
 
-The successor starts with `t3_worker_list` and `t3_worker_read` for each worker,
-then restarts the guards for itself. It sends each listed peer its new session ID
-once, as a coordination update. A worker that was told to message the old ID
-directly gets a correction with `t3_worker_send` to use `t3_worker_report`.
+The successor first reads its workers (`t3_worker_list`, `t3_worker_read`),
+restarts the guards, sends each listed peer its ID once, and tells any worker still
+messaging the old ID to use `t3_worker_report` instead (`t3_worker_send`).
 
 ## Modes
 
