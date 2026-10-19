@@ -12,13 +12,13 @@
       "name": "orchestrator succession and profile controls",
       "requirement": "Authenticated masters can transfer directly owned workers to a new base-forked, self-forked or fresh successor, with an explicit destination account/model/effort. Queue self-forks until source turn ends; preserve assignments and read cursors; reroute undelivered and future reports atomically; retain idempotent retries and cancellation. Agents can generate validated worker profile changes without mutating sessions.",
       "capability": "orchestratorHandoff",
-      "status": "implemented; deployment pending"
+      "status": "active on sliara and myalien in custom stable .22"
     },
     {
       "name": "fresh managed sessions",
       "requirement": "Create a managed worker without a fork source, using the selected project and account/model profile and the master's permission/interaction modes. Preserve ownership, durable assignments, retries, reporting, and follow-ups for both fresh and forked workers.",
       "capability": "workerFreshSessions",
-      "status": "implemented; deployment pending"
+      "status": "active on sliara and myalien in custom stable .22"
     },
     {
       "name": "prepared base forks",
@@ -187,23 +187,30 @@
   ],
   "deployments": {
     "sliara": {
-      "version": "0.0.45+custom.16",
-      "commit": "cd88ad0a1",
+      "version": "0.0.45+custom.22",
+      "runningVersion": "0.0.45+custom.22",
+      "sourceCommit": "9e3cc4ecd",
+      "serverBuildCommit": "d2991d517",
       "status": "active",
-      "runningVersion": "0.0.45+custom.16",
       "orchestrationProtocolVersion": 1,
-      "timestamp": "2026-10-15T18:27:28.859451+00:00",
+      "timestamp": "2026-10-19T03:16:23.133853+00:00",
       "serviceRestarted": true,
-      "verifiedResumedSessions": 9
+      "verifiedResumedSessions": 4,
+      "preservedSessionCount": 336,
+      "capabilities": [
+        "workerFreshSessions",
+        "orchestratorHandoff"
+      ],
+      "validation": "60 focused server tests, 21 workflow tests, lint/typecheck and isolated packaged startup passed. Live capabilities verified; session IDs and provider settings preserved; all four active sessions resumed."
     },
     "myalien": {
-      "version": "0.0.45+custom.21",
-      "runningVersion": "0.0.45+custom.21",
+      "version": "0.0.45+custom.22",
+      "runningVersion": "0.0.45+custom.22",
       "status": "active",
-      "serverBuildCommit": "600a924dc",
-      "serverArchiveSha256": "cb9675dd8efb734477a0c1d40f7b175ba207e5054e77a0f7fd1135a7be83c56e",
+      "serverBuildCommit": "d2991d517",
+      "serverArchiveSha256": "67ffe02ba1a373c3c311b27b0a44a4495fedbd2ae1aa08c47e55b01c0ee3814b",
       "orchestrationProtocolVersion": 1,
-      "timestamp": "2026-10-19T02:40:00.736Z",
+      "timestamp": "2026-10-19T03:16:23.133853+00:00",
       "desktopRestarted": true,
       "activeSessionsBeforeRestart": 0,
       "preservedSessionCount": 1,
@@ -211,7 +218,12 @@
         "codex",
         "claudeAgent"
       ],
-      "validation": "Isolated Electron/Windows startup and authenticated measurement API passed; live provider configuration and session count preserved; SL/ARA samples persisted; combined laptop/MyAlien capacity report passed."
+      "validation": "Isolated Electron/Windows startup and live capability checks passed. 21 workflow tests passed on Windows. Existing session, provider settings, GUI assets and native files preserved; desktop reopened in interactive SessionId 1.",
+      "sourceCommit": "9e3cc4ecd",
+      "capabilities": [
+        "workerFreshSessions",
+        "orchestratorHandoff"
+      ]
     }
   },
   "localFixes": [

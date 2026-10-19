@@ -27,7 +27,7 @@ try {
     if (r.error) throw r.error;
     process.exitCode = r.status ?? 1;
   } else {
-    console.log("t3w profile [--project NAME_OR_PATH]\nt3w capacity [--cached]\nt3w spawn --project NAME_OR_PATH --provider ACCOUNT --model MODEL --name TITLE --task-file FILE --mcp-plan\nt3w fork --project NAME_OR_PATH --provider ACCOUNT --model MODEL --name TITLE --task-file FILE [--source-thread UUID] --mcp-plan\nt3w find NAME\nt3w refresh-bases --project NAME_OR_PATH [--apply]\nt3w check-upstream [--review] [--force]\nt3w environment | install | doctor | update | install-schedule");
+    console.log("t3w profile [--project NAME_OR_PATH]\nt3w capacity [--cached]\nt3w spawn --project NAME_OR_PATH --provider ACCOUNT --model MODEL --name TITLE --task-file FILE --mcp-plan\nt3w fork --project NAME_OR_PATH --provider ACCOUNT --model MODEL --name TITLE --task-file FILE [--source-thread UUID] --mcp-plan\nt3w worker-profile --thread-id UUID [--provider ACCOUNT] [--model MODEL] [--effort EFFORT]\nt3w fork --self-fork --provider ACCOUNT --model MODEL --name TITLE --task-file FILE --handoff-plan\nt3w find NAME\nt3w refresh-bases --project NAME_OR_PATH [--apply]\nt3w check-upstream [--review] [--force]\nt3w environment | install | doctor | update | install-schedule");
     if (command && !["help", "--help", "-h"].includes(command)) process.exitCode = 1;
   }
 } catch (error) { console.error(error.message); process.exitCode = 1; }
