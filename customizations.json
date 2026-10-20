@@ -198,61 +198,74 @@
   ],
   "deployments": {
     "sliara": {
-      "version": "0.0.45+custom.26",
-      "runningVersion": "0.0.45+custom.26",
-      "sourceCommit": "fc72a080f",
-      "serverBuildCommit": "fc72a080f",
+      "version": "0.0.45+custom.27",
+      "runningVersion": "0.0.45+custom.27",
+      "sourceCommit": "0809aec5e",
+      "serverBuildCommit": "0809aec5e",
       "status": "active",
       "orchestrationProtocolVersion": 1,
-      "timestamp": "2026-10-19T20:14:51+00:00",
+      "timestamp": "2026-10-20T15:19:42+00:00",
       "serviceRestarted": true,
-      "verifiedResumedSessions": 8,
-      "preservedSessionCount": 346,
+      "verifiedResumedSessions": 3,
+      "preservedSessionCount": 197,
       "capabilities": [
         "orchestratorHandoff",
         "peerEnvironments",
         "settledThreadPurge",
         "workerFreshSessions"
       ],
-      "validation": "Activated via service-state activeVersion with rollback guard; 8 of 9 running sessions continued (the 9th had finished its turn); 7 pre-restart orphan Claude processes killed, long jobs kept and their threads told; live purge dry run via CLI (74 s; MCP tool timed out).",
-      "executableSha256": "547c5f61e93c72cad68cbdb59c4892c7133835b9994016a41d5516aba0aa2a20",
+      "validation": "61 WorkerControls tests, contracts/server/web typecheck, targeted lint. Live: 197 threads preserved, 3 running sessions continued, workerRenewal applied via server.updateSettings.",
+      "executableSha256": "f6875090e8fc3d19648e5a6ee22c622039e1f36952d81992963b287fb53c8505",
       "continueThreadsAfterServerUpdate": true,
       "peers": [
         {
           "label": "myalien",
           "url": "https://myalien.tail295ac2.ts.net:8443"
         }
-      ]
+      ],
+      "workerRenewal": {
+        "workerHours": 1.5,
+        "masterHours": 3,
+        "codexScale": 1.5,
+        "toolWaitSeconds": 60
+      }
     },
     "myalien": {
-      "version": "0.0.45+custom.25",
-      "runningVersion": "0.0.45+custom.25",
+      "version": "0.0.45+custom.27",
+      "runningVersion": "0.0.45+custom.27",
       "status": "active",
-      "serverBuildCommit": "4dadf200f",
-      "serverArchiveSha256": "f2fd903e439279427b185ff62728463c48b1726c9a17bc706f5ce922630da559",
+      "serverBuildCommit": "0809aec5e",
+      "serverArchiveSha256": "b8360198ccd3b8e3ca66a2a0b0c8371c60635142162e1b250ab804bc5de33b56",
       "orchestrationProtocolVersion": 1,
-      "timestamp": "2026-10-19T17:16:00+00:00",
+      "timestamp": "2026-10-20T15:19:42+00:00",
       "desktopRestarted": true,
       "activeSessionsBeforeRestart": 0,
-      "preservedSessionCount": 1,
+      "preservedSessionCount": 38,
       "measurementInstanceIds": [
         "codex",
         "claudeAgent"
       ],
-      "validation": "Repacked server.asar: server dist set replaced (hashed chunk renamed), 4561 files and 16 unpacked natives unchanged and still unpacked. Isolated Windows startup: migrations through 057, peer route 401 without token, 409 for unlinked caller. Live: desktop relaunched in SessionId 1, custom.25 with peerEnvironments; Tailscale Serve https://myalien.tail295ac2.ts.net:8443 (tailnet only).",
-      "sourceCommit": "4dadf200f",
+      "validation": "Repack kept 4561 files and 16 unpacked natives unchanged. Isolated Electron startup reported custom.27 with fresh/handoff/peer capabilities. Live: 38 threads preserved, provider settings unchanged, continuation enabled and running sessions resumed, workerRenewal applied.",
+      "sourceCommit": "0809aec5e",
       "capabilities": [
         "workerFreshSessions",
         "orchestratorHandoff",
         "peerEnvironments"
       ],
-      "rollbackArchive": "C:/Users/simon/t3-fork-install/server-custom24.asar",
+      "rollbackArchive": "C:/Users/simon/t3-fork-install/server-custom25.asar",
       "peers": [
         {
           "label": "sliara",
           "url": "https://sliara.tail295ac2.ts.net:8443"
         }
-      ]
+      ],
+      "workerRenewal": {
+        "workerHours": 1.5,
+        "masterHours": 3,
+        "codexScale": 1.5,
+        "toolWaitSeconds": 60
+      },
+      "continueThreadsAfterServerUpdate": true
     }
   },
   "localFixes": [
@@ -315,6 +328,12 @@
       "version": "0.0.45+custom.26",
       "feature": "Purge threads settled for more than N days (t3 threads purge-settled, t3_purge_settled_threads MCP): removes T3 rows except one thread.deleted tombstone, exact Claude/Codex transcripts and checkpoint refs on a running server; keeps threads a kept thread depends on",
       "validation": "SettledThreadPurge and AgentTranscripts tests, server typecheck; sandbox server on a VACUUM INTO copy: 12 then 20 threads purged, restart replay clean; live dry run on sliara: 20 would be purged, 2 skipped with reasons"
+    },
+    {
+      "commit": "0809aec5e",
+      "version": "0.0.45+custom.27",
+      "feature": "Worker reports state the worker's and master's working time (turn time minus tool calls over a minute) and flag renewal past the workerRenewal setting (workers/masters, Codex scaled); settings edits apply without a restart",
+      "validation": "61 WorkerControls tests incl. linked environments and live settings change; contracts/server/web typecheck"
     }
   ]
 }
