@@ -5,15 +5,17 @@
 On measured accounts, compactions or `latestContextTokens` nearing
 `contextCapacityTokens` in `t3_usage_measurements` also signal renewal. Give the
 successor what it needs to act, usually one to three pages, and point to files,
-branches, PRs and reports instead of pasting them:
+branches, PRs and reports instead of pasting them. Carry over only instructions
+the user actually gave, quoting them where the wording matters. Do not add rules,
+limits or prohibitions of your own; label your own decisions as yours:
 
 ```text
 You are <successor title> (<successor ID>), the new master, taking over from
 <old title> (<old ID>). Its workers are now yours and report to you.
 
 Objective: the user's goal in their words, and what finished means.
-Standing instructions: permissions, approvals needed, account/budget rules with
-  expiry, anything the user ruled out.
+Standing instructions, only as the user gave them: permissions, approvals needed,
+  account/budget rules with expiry, anything the user ruled out.
 Decisions so far, with reasons, so they are not reopened.
 Workers, one line each: title, ID, environment, account/model, assignment, state,
   next check.

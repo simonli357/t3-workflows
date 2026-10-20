@@ -215,7 +215,7 @@ without further questions; without an account, choose one with the selection pol
   starts from a context prompt, fresh unless the user adds "from base". Once the
   worker has no running turn (the user can Stop it in T3), write its full
   assignment, progress, branch and worktree, evidence and next steps to a file
-  with the reporting instruction, plan with `t3w spawn --mcp-plan` (or `t3w fork`)
+  with the reporting instruction and only the rules the user actually gave, plan with `t3w spawn --mcp-plan` (or `t3w fork`)
   and pass the JSON to `t3_worker_spawn`. Use the new model suffix, adding 2 to the
   keyword if the name would not change (`c344_camera_opus` → `c344_camera2_opus`).
   Then settle the old worker.
@@ -244,7 +244,8 @@ user says overrides these defaults.
 
 1. Act on reports that need a decision now, or list them in the prompt.
 2. Write the prompt to a temporary file from the template in
-   [orchestrator-handoff.md](references/orchestrator-handoff.md).
+   [orchestrator-handoff.md](references/orchestrator-handoff.md). Never add rules
+   the user did not give.
 3. With one ID from `node -p 'crypto.randomUUID()'`, run
    `t3w spawn --handoff-plan --project P --provider ACCOUNT --model MODEL --name TITLE --thread-id ID --task-file FILE`
    (`t3w fork` for base). Never `--self-fork`: it copies the history being shed.
