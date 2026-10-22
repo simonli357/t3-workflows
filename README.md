@@ -47,6 +47,9 @@ For worker profile changes, use `t3w worker-profile --thread-id UUID --provider 
 
 Peer messages on `sessionMessageConfirmation` servers require reviewing a warning
 and confirming the exact message before delivery. Normal worker assignments and
-reports retain their dedicated tools. Retired masters cannot send or receive
-coordination; `t3_worker_reclaim` can restore selected historical workers when a
-new direct user instruction requests it (`workerReclaim` capability).
+reports retain their dedicated tools. On `workerRetirementWarning` servers, a
+retired session can launch and supervise new workers; its first successful action
+returns one informational warning, remembered across restarts. No confirmation
+or reclaim is needed for new workers. `t3_worker_reclaim` restores selected
+previously transferred workers when a new direct user instruction requests it
+(`workerReclaim` capability).
