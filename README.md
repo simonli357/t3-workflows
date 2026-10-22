@@ -43,4 +43,10 @@ Use this package’s `customizations.json` (configured by `upstream.customizatio
 
 To work across machines, link their T3 servers once with `t3w peer link SSH_ALIAS --local-url URL --remote-url URL` (tailnet-only HTTPS addresses, for example Tailscale Serve). Masters can then spawn and manage workers and message sessions on the other machine; see the skill's linked-environments section. `t3w peer check` retests both directions.
 
-For worker profile changes, use `t3w worker-profile --thread-id UUID --provider AD --model sol` to generate validated `t3_worker_control` input. For orchestration succession, see the global skill’s [handoff workflow](skills/t3-fork-session/references/orchestrator-handoff.md).
+For worker profile changes, use `t3w worker-profile --thread-id UUID --provider AD --model sol` to generate validated `t3_worker_control` input. For orchestration succession and user-requested reclaim of selected handed-off workers, see the global skill’s [handoff workflow](skills/t3-fork-session/references/orchestrator-handoff.md).
+
+Peer messages on `sessionMessageConfirmation` servers require reviewing a warning
+and confirming the exact message before delivery. Normal worker assignments and
+reports retain their dedicated tools. Retired masters cannot send or receive
+coordination; `t3_worker_reclaim` can restore selected historical workers when a
+new direct user instruction requests it (`workerReclaim` capability).
