@@ -9,6 +9,12 @@
   },
   "contracts": [
     {
+      "name": "bounded session message reads",
+      "requirement": "Named session lookups return recent user prompts and completed final replies by default; configurable message count defaults to 3 and is capped at 15. Enforce the whole JSON size budget, page only on demand, and query individual messages without hydrating complete threads. Imported finals are explicitly inferred; intermediate messages require opt-in.",
+      "capability": "boundedSessionHistory",
+      "status": "implemented; deployment pending"
+    },
+    {
       "name": "linked environments",
       "requirement": "Linked T3 servers exchange worker traffic over tailnet-only HTTPS (POST /api/peer/v1, bearer token issued by the peer, caller must be a configured peer). t3_session_send and t3_worker_spawn accept environment; remote messages and reports are queued, retried every 30 s while the peer is offline, and delivered idempotently; masters list/read/send/wait/control remote workers through their own server; reports follow a handoff successor. Links are created by t3w peer link and stored in each server's peer-environments secret.",
       "capability": "peerEnvironments",

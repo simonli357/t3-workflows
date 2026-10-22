@@ -9,6 +9,7 @@ t3w doctor
 t3w profile --project scandy
 t3w capacity
 t3w find 'c344_camera_sol'
+t3w find 'c344_camera_sol' --messages 1
 t3w refresh-bases --project scandy --apply
 t3w update
 ```
@@ -22,6 +23,13 @@ t3w spawn --project /path/to/repo --provider SL --model sol --name review_worker
 Project resolution uses `--project` (profile name or path), then `T3_WORKFLOWS_PROJECT`, then the current primary Git checkout. Forks map that checkout to the configured base project; fresh sessions use the repository itself. It never infers a project from the installed skill location. Unknown projects use their own checkout. ScandyAutonomy and ScandyControl intentionally share fork bases in ScandyControl. Profile names, paths, base prompts/names, account overrides and enabled accounts are configuration. Default account/model profiles live in the skill's `references/accounts.json`; project naming policy lives in the selected profile. There is no scripted account ranking.
 
 `T3_WORKFLOWS_CONFIG` overrides the config path. `skillHomes` lists account configuration roots. `enabledAccounts` can limit the aliases used on a machine; other accounts are not assumed installed. The connection settings accept explicit server/home/CLI overrides as before.
+
+`find` returns the latest 3 individual user prompts/final replies by default. Choose
+`--messages 1`, `--messages 3` or `--messages 5`; the server and helper enforce a
+hard cap of **15**. Intermediate assistant updates require `--include-intermediate`.
+`--chars` caps the full JSON response (default 16,000, maximum 64,000), including
+metadata. Older pages and long-message continuations are explicit. This read path
+requires a server advertising `boundedSessionHistory`.
 
 ## Weekly upstream review
 
