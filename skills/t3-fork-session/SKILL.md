@@ -1,6 +1,6 @@
 ---
 name: t3-fork-session
-description: Create fresh T3 sessions or fork existing conversations, manage workers with explicit or agent-selected account/model profiles, and find, read, or message other sessions, including on linked machines. Use for T3 delegation, worker management, and session coordination; not unrelated work in the current session. User keywords "renew yourself" (hand this master to a successor), "switch WORKER to ACCOUNT" (change a worker's provider in place) and "renew WORKER" (replace a worker with a new session).
+description: Create fresh T3 sessions or fork existing conversations, manage workers with explicit or agent-selected account/model profiles, and find, read, or message other sessions, including on linked machines. Use for T3 delegation, worker management, and session coordination; not unrelated work in the current session. User keywords "renew yourself" (hand this master to a successor), "switch WORKER to ACCOUNT" (change a worker's provider in place), "renew WORKER" (replace a worker with a new session), and "reclaim WORKERS" (take selected handed-off workers back at the user's request).
 ---
 
 # T3 Sessions and Workers
@@ -266,12 +266,15 @@ user says overrides these defaults.
    workers moved and the successor's first turn is queued; check `startupState`
    and `startupError`.
 5. Give the user the successor's title and ID, stop guards that wake this session,
-   and end the turn. From then on, only forward stray messages unchanged to the
-   successor with `t3_session_send`.
+   and end the turn. Retired masters stop coordinating; the server rejects sends
+   to or from them and identifies the current successor. Do not forward or fan
+   out stray messages to past masters.
 
 `t3_orchestrator_handoff_status` inspects or cancels a handoff before ownership
-moves. A worker spawn does not transfer the role. Other modes, retries and
-failures are in the reference.
+moves. A worker spawn does not transfer the role. When the user tells a former
+master to take selected workers back, use `t3_worker_reclaim` as described in
+[orchestrator-handoff.md](references/orchestrator-handoff.md#reclaim-selected-workers).
+Reclaim is never automatic. Other modes, retries and failures are in that reference.
 
 ## Work across linked environments
 
@@ -283,7 +286,8 @@ machines before relying on it.
 
 - **Messages:** add `environment: "<label>"` to `t3_session_send`. Resolve the
   recipient with `t3w find NAME --environment <label>`. While that machine is
-  offline the message waits on this server and is retried every 30 seconds:
+  offline a previously reviewed and confirmed message waits on this server and
+  is retried every 30 seconds:
   `queued` means waiting, `dispatched` means the other environment accepted it.
   Messages from another machine name it ("in environment myalien"); reply with
   that `environment`. The reporting rules below apply unchanged.
@@ -319,7 +323,21 @@ Supply its `threadId`, a new `clientRequestId`, and the message as `prompt`.
 Reuse the same ID and identical content on retries. T3 attaches the authenticated
 sender's session ID automatically; never invent or override the sender identity.
 
-Messages appear immediately. A running recipient receives the message in its
+On a server advertising `sessionMessageConfirmation`, the first call sends
+nothing and returns `confirmation_required`: sender/recipient, project, a message
+preview, and a short-lived token. Read the warning: **Are you sure this is what
+you want to do, and is it necessary?** Check the exact recipient, project and
+relevance to the user's task. Confirm an intentional, necessary message by
+calling the same tool with identical input/request ID plus `confirmationToken`.
+Do not automatically confirm warnings. A token authorizes only that message;
+changed recipients, content or ownership need a new review. Retired masters
+cannot send or receive coordination, even with a token. Own-worker assignments
+and reports to the current master use their dedicated tools, without this step.
+Linked peer messaging needs support on both servers and a reachable recipient
+for the initial review; a reviewed message may then be confirmed and queued
+while the peer is offline. Do not bypass the warning through another transport.
+
+Confirmed messages appear immediately. A running recipient receives the message in its
 active turn; an idle recipient wakes even without a running provider process.
 Stop and snooze remain respected: the visible message waits until the recipient
 resumes. `dispatched` means handed to orchestration, not proof the agent read it;

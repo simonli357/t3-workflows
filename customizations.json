@@ -9,6 +9,12 @@
   },
   "contracts": [
     {
+      "name": "confirmed peer messaging and selected worker reclaim",
+      "requirement": "Dedicated worker tools enforce current ownership. Peer sends require an exact-message confirmation after a recipient/project/necessity warning; sender and recipient are rechecked before local or linked delivery. Completed handoffs retire predecessors. At a new direct user request, a former master can atomically reclaim selected historical workers and their undelivered reports, preserving ongoing work and leaving the successor's other workers in place.",
+      "capability": "sessionMessageConfirmation",
+      "status": "implemented in custom.29; deployment pending"
+    },
+    {
       "name": "bounded session message reads",
       "requirement": "Named session lookups return recent user prompts and completed final replies by default; configurable message count defaults to 3 and is capped at 15. Enforce the whole JSON size budget, page only on demand, and query individual messages without hydrating complete threads. Imported finals are explicitly inferred; intermediate messages require opt-in.",
       "capability": "boundedSessionHistory",
