@@ -336,6 +336,11 @@ Include this instruction in every worker's initial assignment:
 > investigate, wait, or try another approach within your authority; resolve
 > what you can yourself. Progress stays in this worker conversation. This rule
 > also applies to `t3_session_send` and any other channel.
+> Never block in one tool call for more than 5 minutes: run longer work in the
+> background and check it in waits of 5 minutes or less, so messages reach you.
+
+Masters follow the same 5-minute limit. A message to a running Claude session is
+read only after its current tool call ends, so a long wait delays every message.
 
 Never have workers report by messaging a master's ID: only `t3_worker_report`
 follows ownership to a successor.
