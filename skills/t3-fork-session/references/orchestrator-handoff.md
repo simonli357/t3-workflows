@@ -62,9 +62,12 @@ report preferences and undelivered reports. Running work is not interrupted.
 Previously delivered reports remain in the old conversation; the successor must
 list/read current workers before issuing follow-ups. Future reports target the new
 master. Worker model/account/effort and permissions do not change. The old session
-is preserved and retired from coordination; sends to/from it are rejected with
-the current successor ID. The successor is an independent
-orchestrator, not another worker reporting to its predecessor. This transfers direct
+is preserved with its handoff history. On `workerRetirementWarning` servers,
+retirement returns one informational warning per session and the action proceeds,
+without user confirmation. If the user gives the former master new work, it can
+create and supervise new workers directly; reclaim is not needed for that.
+Previously transferred workers still belong to their current master. The successor
+is an independent orchestrator, not another worker reporting to its predecessor. This transfers direct
 worker ownership on one T3 environment; it does not move unrelated peers, nested
 workers, an upstream owner's assignment, or sessions on another host.
 
@@ -83,7 +86,8 @@ The server checks historical ownership and new user-message provenance. The
 agent must check that the quoted instruction actually authorizes reclaiming the
 selected workers; a greeting or unrelated request is not permission. Peer
 messages, inherited instructions, renewal thresholds and model convenience do
-not authorize reclaim. Never reactivate yourself autonomously.
+not authorize reclaim. Creating new workers for a new assignment does not reclaim
+old ones and needs no ownership transfer.
 
 Reclaim atomically moves the named workers and their undelivered reports and
 reactivates the claimant. The successor stays active and keeps its other

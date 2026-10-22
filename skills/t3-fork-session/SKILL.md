@@ -266,15 +266,20 @@ user says overrides these defaults.
    workers moved and the successor's first turn is queued; check `startupState`
    and `startupError`.
 5. Give the user the successor's title and ID, stop guards that wake this session,
-   and end the turn. Retired masters stop coordinating; the server rejects sends
-   to or from them and identifies the current successor. Do not forward or fan
-   out stray messages to past masters.
+   and end the turn. The successor now owns those workers; do not forward or fan
+   out stray messages to past masters. If the user later gives this session new
+   work, it can create and supervise new workers directly. On
+   `workerRetirementWarning` servers, retirement produces one informational
+   warning per session, remembered across restarts, and the action proceeds.
+   Do not ask for confirmation or reclaim merely to launch new workers.
 
 `t3_orchestrator_handoff_status` inspects or cancels a handoff before ownership
 moves. A worker spawn does not transfer the role. When the user tells a former
 master to take selected workers back, use `t3_worker_reclaim` as described in
 [orchestrator-handoff.md](references/orchestrator-handoff.md#reclaim-selected-workers).
-Reclaim is never automatic. Other modes, retries and failures are in that reference.
+Reclaim is only needed to take back previously transferred workers at the user's
+request; it is not a prerequisite for creating new ones. Other modes, retries
+and failures are in that reference.
 
 ## Work across linked environments
 
@@ -330,9 +335,11 @@ you want to do, and is it necessary?** Check the exact recipient, project and
 relevance to the user's task. Confirm an intentional, necessary message by
 calling the same tool with identical input/request ID plus `confirmationToken`.
 Do not automatically confirm warnings. A token authorizes only that message;
-changed recipients, content or ownership need a new review. Retired masters
-cannot send or receive coordination, even with a token. Own-worker assignments
-and reports to the current master use their dedicated tools, without this step.
+changed recipients, content or ownership need a new review. On
+`workerRetirementWarning` servers, retirement alone does not block messaging.
+Its once-only informational warning needs no additional confirmation. Own-worker
+assignments and reports to the current master use their dedicated tools, without
+this step.
 Linked peer messaging needs support on both servers and a reachable recipient
 for the initial review; a reviewed message may then be confirmed and queued
 while the peer is offline. Do not bypass the warning through another transport.

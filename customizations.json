@@ -9,6 +9,12 @@
   },
   "contracts": [
     {
+      "name": "one-time retirement warning",
+      "requirement": "Retirement alone never blocks coordination or new worker launches. The first successful action by a retired session returns one informational warning without requiring confirmation or reclaim; persist the warning receipt across calls, concurrent launches, repeated handoffs and server restarts. Existing worker ownership and exact-message peer confirmations still apply. Reclaim is only needed to take back selected previously transferred workers at the user's request.",
+      "capability": "workerRetirementWarning",
+      "status": "staged for custom stable .30; activation pending"
+    },
+    {
       "name": "confirmed peer messaging and selected worker reclaim",
       "requirement": "Dedicated worker tools enforce current ownership. Peer sends require an exact-message confirmation after a recipient/project/necessity warning; sender and recipient are rechecked before local or linked delivery. Completed handoffs retire predecessors. At a new direct user request, a former master can atomically reclaim selected historical workers and their undelivered reports, preserving ongoing work and leaving the successor's other workers in place.",
       "capability": "sessionMessageConfirmation",
