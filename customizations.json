@@ -12,13 +12,13 @@
       "name": "confirmed peer messaging and selected worker reclaim",
       "requirement": "Dedicated worker tools enforce current ownership. Peer sends require an exact-message confirmation after a recipient/project/necessity warning; sender and recipient are rechecked before local or linked delivery. Completed handoffs retire predecessors. At a new direct user request, a former master can atomically reclaim selected historical workers and their undelivered reports, preserving ongoing work and leaving the successor's other workers in place.",
       "capability": "sessionMessageConfirmation",
-      "status": "implemented in custom.29; deployment pending"
+      "status": "active on sliara in custom stable .29; linked hosts require their own compatible update"
     },
     {
       "name": "bounded session message reads",
       "requirement": "Named session lookups return recent user prompts and completed final replies by default; configurable message count defaults to 3 and is capped at 15. Enforce the whole JSON size budget, page only on demand, and query individual messages without hydrating complete threads. Imported finals are explicitly inferred; intermediate messages require opt-in.",
       "capability": "boundedSessionHistory",
-      "status": "implemented; deployment pending"
+      "status": "active on sliara in custom stable .29; linked hosts require their own compatible update"
     },
     {
       "name": "linked environments",
@@ -210,37 +210,31 @@
   ],
   "deployments": {
     "sliara": {
-      "version": "0.0.45+custom.27",
-      "runningVersion": "0.0.45+custom.27",
-      "sourceCommit": "0809aec5e",
-      "serverBuildCommit": "0809aec5e",
+      "version": "0.0.45+custom.29",
+      "runningVersion": "0.0.45+custom.29",
+      "sourceCommit": "d9d76dca522e1891875ea0a967a17eb5f06debcf",
+      "serverBuildCommit": "d9d76dca522e1891875ea0a967a17eb5f06debcf",
+      "workflowCommit": "a92b2ba1524765cec534ce5fd49ecea13e6bb537",
       "status": "active",
       "orchestrationProtocolVersion": 1,
-      "timestamp": "2026-10-20T15:19:42+00:00",
+      "timestamp": "2026-10-22T19:44:39.691Z",
       "serviceRestarted": true,
-      "verifiedResumedSessions": 3,
-      "preservedSessionCount": 197,
+      "verifiedResumedSessions": 5,
+      "profilesPreserved": true,
+      "continueThreadsAfterServerUpdate": true,
       "capabilities": [
+        "workerFreshSessions",
+        "boundedSessionHistory",
         "orchestratorHandoff",
         "peerEnvironments",
-        "settledThreadPurge",
-        "workerFreshSessions"
+        "sessionMessageConfirmation",
+        "workerReclaim"
       ],
-      "validation": "61 WorkerControls tests, contracts/server/web typecheck, targeted lint. Live: 197 threads preserved, 3 running sessions continued, workerRenewal applied via server.updateSettings.",
-      "executableSha256": "f6875090e8fc3d19648e5a6ee22c622039e1f36952d81992963b287fb53c8505",
-      "continueThreadsAfterServerUpdate": true,
-      "peers": [
-        {
-          "label": "myalien",
-          "url": "https://myalien.tail295ac2.ts.net:8443"
-        }
-      ],
-      "workerRenewal": {
-        "workerHours": 1.5,
-        "masterHours": 3,
-        "codexScale": 1.5,
-        "toolWaitSeconds": 60
-      }
+      "validation": "99 focused server tests, 26 targeted workflow checks, typecheck, lint, native build and isolated smoke checks. Live service and CLI report custom.29; all 5 working sessions resumed with native account/model/effort preserved.",
+      "executableSha256": "21fc8eac7b912e0eb13a0db682717a30254f6f71d89d2ac65f6eaf9677ad1bbc",
+      "serverArchiveSha256": "be34360aa2cdf2991f1c67f72617837b9d6a6cf255213342789b1467c378e527",
+      "activationMethod": "local service installation after a clean stop and closed-database backup; remote updater ignores custom build metadata when comparing versions",
+      "evidence": "/home/simonli/t3code-custom/build/coordination-20261022/deployment-20261022/outputs/activation-status.json"
     },
     "myalien": {
       "version": "0.0.45+custom.27",
