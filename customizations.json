@@ -12,7 +12,7 @@
       "name": "one-time retirement warning",
       "requirement": "Retirement alone never blocks coordination or new worker launches. The first successful action by a retired session returns one informational warning without requiring confirmation or reclaim; persist the warning receipt across calls, concurrent launches, repeated handoffs and server restarts. Existing worker ownership and exact-message peer confirmations still apply. Reclaim is only needed to take back selected previously transferred workers at the user's request.",
       "capability": "workerRetirementWarning",
-      "status": "staged for custom stable .30; activation pending"
+      "status": "active on sliara in custom stable .30; linked hosts require their own compatible update"
     },
     {
       "name": "confirmed peer messaging and selected worker reclaim",
@@ -216,16 +216,16 @@
   ],
   "deployments": {
     "sliara": {
-      "version": "0.0.45+custom.29",
-      "runningVersion": "0.0.45+custom.29",
-      "sourceCommit": "d9d76dca522e1891875ea0a967a17eb5f06debcf",
-      "serverBuildCommit": "d9d76dca522e1891875ea0a967a17eb5f06debcf",
-      "workflowCommit": "a92b2ba1524765cec534ce5fd49ecea13e6bb537",
+      "version": "0.0.45+custom.30",
+      "runningVersion": "0.0.45+custom.30",
+      "sourceCommit": "1b4558668232c65596b9fa8ff9a0112a95864188",
+      "serverBuildCommit": "1b4558668232c65596b9fa8ff9a0112a95864188",
+      "workflowCommit": "517078db4bf3a0f2f755d60ca516c357edc8ce5b",
       "status": "active",
       "orchestrationProtocolVersion": 1,
-      "timestamp": "2026-10-22T19:44:39.691Z",
+      "timestamp": "2026-10-22T23:35:54.003Z",
       "serviceRestarted": true,
-      "verifiedResumedSessions": 5,
+      "verifiedResumedSessions": 6,
       "profilesPreserved": true,
       "continueThreadsAfterServerUpdate": true,
       "capabilities": [
@@ -234,13 +234,14 @@
         "orchestratorHandoff",
         "peerEnvironments",
         "sessionMessageConfirmation",
-        "workerReclaim"
+        "workerReclaim",
+        "workerRetirementWarning"
       ],
-      "validation": "99 focused server tests, 26 targeted workflow checks, typecheck, lint, native build and isolated smoke checks. Live service and CLI report custom.29; all 5 working sessions resumed with native account/model/effort preserved.",
-      "executableSha256": "21fc8eac7b912e0eb13a0db682717a30254f6f71d89d2ac65f6eaf9677ad1bbc",
-      "serverArchiveSha256": "be34360aa2cdf2991f1c67f72617837b9d6a6cf255213342789b1467c378e527",
+      "validation": "101 focused server tests, server typecheck, targeted lint, skill validation, native build and 7 isolated native smoke checks. Live service and CLI report custom.30; all 6 working sessions resumed with native account/model/effort preserved.",
+      "executableSha256": "92d2fc616eb0a6b989c6bf2956c307f4f1a13db455316b053c705e8a0bbcb1e2",
+      "serverArchiveSha256": "146d797c255a2b5fea32b55674225b2cf86d5243def0594a840bae1e024f61e4",
       "activationMethod": "local service installation after a clean stop and closed-database backup; remote updater ignores custom build metadata when comparing versions",
-      "evidence": "/home/simonli/t3code-custom/build/coordination-20261022/deployment-20261022/outputs/activation-status.json"
+      "evidence": "/home/simonli/t3code-custom/build/retirement-warning-20261022/outputs/activation-status.json"
     },
     "myalien": {
       "version": "0.0.45+custom.27",
