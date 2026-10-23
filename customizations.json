@@ -12,7 +12,7 @@
       "name": "same-provider native session moves",
       "requirement": "Move Codex-to-Codex or Claude-to-Claude across linked computers, preserving native identity, persisted context, complete T3 conversation/settings, attachments, workspace changes/checkpoints and worker/report routing. Validate the destination before freezing; chunk/hash-verify data, refuse fresh-session fallback, reconcile durable commit receipts, retain only one writable owner, and support cancellation and return moves. Metadata-only planning never reads the full chat into model context.",
       "capability": "nativeSessionMoves",
-      "status": "implemented; activation pending verification"
+      "status": "active on all three hosts; recovery correction custom.33 active on sliara/MyAlien, MyAcer custom.32 pending storage exception"
     },
     {
       "name": "one-time retirement warning",
@@ -222,54 +222,75 @@
   ],
   "deployments": {
     "sliara": {
-      "version": "0.0.45+custom.30",
-      "runningVersion": "0.0.45+custom.30",
-      "sourceCommit": "1b4558668232c65596b9fa8ff9a0112a95864188",
-      "serverBuildCommit": "1b4558668232c65596b9fa8ff9a0112a95864188",
-      "workflowCommit": "517078db4bf3a0f2f755d60ca516c357edc8ce5b",
+      "version": "0.0.45+custom.33",
+      "runningVersion": "0.0.45+custom.33",
+      "sourceCommit": "dc5c22005cc340c70f511ad1b4a628d8b3762b42",
+      "serverBuildCommit": "dc5c22005cc340c70f511ad1b4a628d8b3762b42",
+      "workflowCommit": "25c94d5",
       "status": "active",
       "orchestrationProtocolVersion": 1,
-      "timestamp": "2026-10-22T23:35:54.003Z",
+      "timestamp": "2026-10-23T05:07:11.124163+00:00",
       "serviceRestarted": true,
-      "verifiedResumedSessions": 6,
+      "verifiedResumedSessions": 2,
       "profilesPreserved": true,
       "continueThreadsAfterServerUpdate": true,
       "capabilities": [
-        "workerFreshSessions",
         "boundedSessionHistory",
+        "computers",
+        "nativeSessionMoves",
         "orchestratorHandoff",
         "peerEnvironments",
         "sessionMessageConfirmation",
+        "workerFreshSessions",
         "workerReclaim",
         "workerRetirementWarning"
       ],
-      "validation": "101 focused server tests, server typecheck, targeted lint, skill validation, native build and 7 isolated native smoke checks. Live service and CLI report custom.30; all 6 working sessions resumed with native account/model/effort preserved.",
-      "executableSha256": "92d2fc616eb0a6b989c6bf2956c307f4f1a13db455316b053c705e8a0bbcb1e2",
+      "validation": "Native session moves active; focused backend/workflow and native resume checks passed. Restart continuation retained native IDs and profiles. See nativeSessionMovesVerification for host-specific state and any pending correction.",
+      "executableSha256": "96b27f9da4f875648005c68df4173f4157c29437392d990b23f4c551302242e4",
       "serverArchiveSha256": "146d797c255a2b5fea32b55674225b2cf86d5243def0594a840bae1e024f61e4",
       "activationMethod": "local service installation after a clean stop and closed-database backup; remote updater ignores custom build metadata when comparing versions",
-      "evidence": "/home/simonli/t3code-custom/build/retirement-warning-20261022/outputs/activation-status.json"
+      "evidence": "/home/simonli/t3code-custom/build/retirement-warning-20261022/outputs/activation-status.json",
+      "nativeSessionMovesVerification": {
+        "checkedAt": "2026-10-23T05:07:11.124163+00:00",
+        "sameProviderMoves": true,
+        "savedNativeContextAndIdentity": true,
+        "clientIndexSha256": "a77c9237c1974518ea84bc39b2ab7a3768e660d9f61c2271ee7490ef2230ee5e",
+        "evidence": "/home/simonli/t3code-custom/build/native-session-move-20261022/patch33/outputs/all-hosts.json",
+        "nativeProbeEvidence": "/home/simonli/t3code-custom/build/native-session-move-20261022/outputs/native-codex-resume.json",
+        "recoveryCorrection": true,
+        "resumedWithSameNativeId": 2,
+        "historyAndOwnershipPreserved": true,
+        "proof": "/home/simonli/t3code-custom/build/native-session-move-20261022/patch33/outputs/sliara-preservation.json",
+        "cloudClientConfigPreserved": true
+      }
     },
     "myalien": {
-      "version": "0.0.45+custom.27",
-      "runningVersion": "0.0.45+custom.27",
+      "version": "0.0.45+custom.33",
+      "runningVersion": "0.0.45+custom.33",
       "status": "active",
-      "serverBuildCommit": "0809aec5e",
-      "serverArchiveSha256": "b8360198ccd3b8e3ca66a2a0b0c8371c60635142162e1b250ab804bc5de33b56",
+      "serverBuildCommit": "dc5c22005cc340c70f511ad1b4a628d8b3762b42",
+      "serverArchiveSha256": "aa1aebd546621964cb143a0ad368b01f14b322f1a657b630b3df71d28951600b",
       "orchestrationProtocolVersion": 1,
-      "timestamp": "2026-10-20T15:19:42+00:00",
+      "timestamp": "2026-10-23T05:07:11.124163+00:00",
       "desktopRestarted": true,
-      "activeSessionsBeforeRestart": 0,
+      "activeSessionsBeforeRestart": 4,
       "preservedSessionCount": 38,
       "measurementInstanceIds": [
         "codex",
         "claudeAgent"
       ],
-      "validation": "Repack kept 4561 files and 16 unpacked natives unchanged. Isolated Electron startup reported custom.27 with fresh/handoff/peer capabilities. Live: 38 threads preserved, provider settings unchanged, continuation enabled and running sessions resumed, workerRenewal applied.",
-      "sourceCommit": "0809aec5e",
+      "validation": "Native session moves active; focused backend/workflow and native resume checks passed. Restart continuation retained native IDs and profiles. See nativeSessionMovesVerification for host-specific state and any pending correction.",
+      "sourceCommit": "dc5c22005cc340c70f511ad1b4a628d8b3762b42",
       "capabilities": [
-        "workerFreshSessions",
+        "boundedSessionHistory",
+        "computers",
+        "nativeSessionMoves",
         "orchestratorHandoff",
-        "peerEnvironments"
+        "peerEnvironments",
+        "sessionMessageConfirmation",
+        "workerFreshSessions",
+        "workerReclaim",
+        "workerRetirementWarning"
       ],
       "rollbackArchive": "C:/Users/simon/t3-fork-install/server-custom25.asar",
       "peers": [
@@ -284,7 +305,62 @@
         "codexScale": 1.5,
         "toolWaitSeconds": 60
       },
-      "continueThreadsAfterServerUpdate": true
+      "continueThreadsAfterServerUpdate": true,
+      "workflowCommit": "25c94d5",
+      "profilesPreserved": true,
+      "verifiedResumedSessions": 4,
+      "appArchiveSha256": "a1a8d9388ef560ac317f2d671dea10fb29440ea07097051b42253ffa48dfa264",
+      "nativeSessionMovesVerification": {
+        "checkedAt": "2026-10-23T05:07:11.124163+00:00",
+        "sameProviderMoves": true,
+        "savedNativeContextAndIdentity": true,
+        "clientIndexSha256": "a77c9237c1974518ea84bc39b2ab7a3768e660d9f61c2271ee7490ef2230ee5e",
+        "evidence": "/home/simonli/t3code-custom/build/native-session-move-20261022/patch33/outputs/all-hosts.json",
+        "nativeProbeEvidence": "/home/simonli/t3code-custom/build/native-session-move-20261022/outputs/native-codex-resume.json",
+        "recoveryCorrection": true,
+        "resumedWithSameNativeId": 4,
+        "backendAndDesktopShellPreservedDuringClientUpdate": true,
+        "proof": "/home/simonli/t3code-custom/build/native-session-move-20261022/patch33/outputs/myalien-public-native-continuation.json",
+        "cloudClientConfigPreserved": true
+      }
+    },
+    "myacer": {
+      "version": "0.0.45+custom.32",
+      "runningVersion": "0.0.45+custom.32",
+      "sourceCommit": "cf13e7d76b786cfbe1dd0f473001a5d4a75796d3",
+      "serverBuildCommit": "cf13e7d76b786cfbe1dd0f473001a5d4a75796d3",
+      "workflowCommit": "25c94d5",
+      "status": "active",
+      "timestamp": "2026-10-23T05:07:11.124163+00:00",
+      "orchestrationProtocolVersion": 1,
+      "profilesPreserved": true,
+      "continueThreadsAfterServerUpdate": true,
+      "capabilities": [
+        "boundedSessionHistory",
+        "computers",
+        "nativeSessionMoves",
+        "orchestratorHandoff",
+        "peerEnvironments",
+        "sessionMessageConfirmation",
+        "workerFreshSessions",
+        "workerReclaim",
+        "workerRetirementWarning"
+      ],
+      "serviceRestarted": true,
+      "verifiedResumedSessions": 0,
+      "nativeSessionMovesVerification": {
+        "checkedAt": "2026-10-23T05:07:11.124163+00:00",
+        "sameProviderMoves": true,
+        "savedNativeContextAndIdentity": true,
+        "clientIndexSha256": "6e6ae65e7ffd58f081a04a28532303fbc701e8d00bfe83f63ce59d688d96edd4",
+        "evidence": "/home/simonli/t3code-custom/build/native-session-move-20261022/patch33/outputs/all-hosts.json",
+        "nativeProbeEvidence": "/home/simonli/t3code-custom/build/native-session-move-20261022/outputs/native-codex-resume.json",
+        "recoveryCorrection": false,
+        "pendingVersion": "0.0.45+custom.33",
+        "pendingReason": "Kingston is below the configured 100 GiB reserve; temporary approximately 40 MiB update exception requested and not yet approved. Existing custom.32 move feature remains active.",
+        "cloudClientConfigPreserved": false
+      },
+      "validation": "Native session moves active; focused backend/workflow and native resume checks passed. Restart continuation retained native IDs and profiles. See nativeSessionMovesVerification for host-specific state and any pending correction."
     }
   },
   "localFixes": [
@@ -353,6 +429,12 @@
       "version": "0.0.45+custom.27",
       "feature": "Worker reports state the worker's and master's working time (turn time minus tool calls over a minute) and flag renewal past the workerRenewal setting (workers/masters, Codex scaled); settings edits apply without a restart",
       "validation": "61 WorkerControls tests incl. linked environments and live settings change; contracts/server/web typecheck"
+    },
+    {
+      "commit": "dc5c22005cc340c70f511ad1b4a628d8b3762b42",
+      "version": "0.0.45+custom.33",
+      "feature": "Same-provider native Codex/Claude moves between linked computers, retaining native identity, complete saved conversation/context, workspace changes, checkpoints, attachments and current worker/report routing; verified single writable owner, cancellation and recovery. CLI, MCP, desktop/web and mobile source integration.",
+      "validation": "146-test focused backend suite plus targeted worker-execution and recovery regressions; 13 workflow tests; scoped server/web/mobile typechecks; Linux and Windows packaged startup; copied Codex/Claude native state resumes without a model turn; live profiles/native IDs retained across activation. MyAcer runs custom.32 pending its disk-reserve decision."
     }
   ]
 }
