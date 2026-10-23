@@ -9,6 +9,12 @@
   },
   "contracts": [
     {
+      "name": "same-provider native session moves",
+      "requirement": "Move Codex-to-Codex or Claude-to-Claude across linked computers, preserving native identity, persisted context, complete T3 conversation/settings, attachments, workspace changes/checkpoints and worker/report routing. Validate the destination before freezing; chunk/hash-verify data, refuse fresh-session fallback, reconcile durable commit receipts, retain only one writable owner, and support cancellation and return moves. Metadata-only planning never reads the full chat into model context.",
+      "capability": "nativeSessionMoves",
+      "status": "implemented; activation pending verification"
+    },
+    {
       "name": "one-time retirement warning",
       "requirement": "Retirement alone never blocks coordination or new worker launches. The first successful action by a retired session returns one informational warning without requiring confirmation or reclaim; persist the warning receipt across calls, concurrent launches, repeated handoffs and server restarts. Existing worker ownership and exact-message peer confirmations still apply. Reclaim is only needed to take back selected previously transferred workers at the user's request.",
       "capability": "workerRetirementWarning",
