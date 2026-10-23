@@ -1,6 +1,6 @@
 ---
 name: t3-fork-session
-description: Create fresh T3 sessions or fork existing conversations, manage workers with explicit or agent-selected account/model profiles, and find, read, or message other sessions, including on linked machines. Use for T3 delegation, worker management, and session coordination; not unrelated work in the current session. User keywords "renew yourself" (hand this master to a successor), "switch WORKER to ACCOUNT" (change a worker's provider in place), "renew WORKER" (replace a worker with a new session), and "reclaim WORKERS" (take selected handed-off workers back at the user's request).
+description: Create fresh T3 sessions, fork conversations, or move full native sessions between linked computers with the same provider, manage workers with explicit or agent-selected account/model profiles, and find, read, or message other sessions, including on linked machines. Use for T3 delegation, worker management, and session coordination; not unrelated work in the current session. User keywords "renew yourself" (hand this master to a successor), "switch WORKER to ACCOUNT" (change a worker's provider in place), "renew WORKER" (replace a worker with a new session), and "reclaim WORKERS" (take selected handed-off workers back at the user's request).
 ---
 
 # T3 Sessions and Workers
@@ -20,6 +20,16 @@ conversation. When either is unspecified, inspect capacity using the tools below
 and let the agent select the missing value. No script selects or ranks profiles.
 Retries and follow-ups retain the current profile. Use the explicit worker
 control below to change it within the user's account/model constraints.
+
+## Native session moves
+
+Move a saved Codex or Claude conversation between linked computers with the same provider, retaining the original native session ID and full persisted context. Use this for “move/transfer this session to COMPUTER”; renewal and handoff remain separate actions.
+
+1. Run `t3w move NAME --to COMPUTER --project DESTINATION_PROJECT --mcp-plan` (or supply `--thread-id`). This reads shell metadata and provider catalogs only. Both hosts need `nativeSessionMoves`; it never reads native conversation content into your context. Preserve the selected model/options. Use `--provider-instance-id` only for an explicit destination account mapping of the same provider.
+2. Invoke the returned `t3_session_move` input from the source session, or from its current owner for a local worker. After requesting your own move, end your turn so the server can capture the finished native state. Do not wait for your own move from inside that turn.
+3. Keep the request ID. Inspect with `t3_session_move_status` or `t3w move --status ID`; retries reuse the identical original input and request ID. Cancellation is available before commit begins. An uncertain commit must reconcile its durable receipt before either copy can be reactivated.
+
+The server verifies copied files and native resume before transferring ownership. The source becomes an archived, non-writable copy. T3 history, settings, attachments, Git checkpoints, staged/unstaged changes and nonignored untracked files are copied; native transcript and per-thread stores travel in bounded chunks without model token consumption. The destination gets a separate worktree. Credentials stay on each computer. Running terminal processes, ignored build outputs, external services and machine-specific tools are not transferred. The saved context is preserved, including any compaction already performed by the provider. Moving back is supported.
 
 ## Inspect capacity before choosing a profile
 
