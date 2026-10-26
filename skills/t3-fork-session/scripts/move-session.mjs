@@ -1,8 +1,8 @@
 #!/usr/bin/env node
+import { existsSync, realpathSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { parseArgs } from "node:util";
 import { pathToFileURL } from "node:url";
-import path from "node:path";
 import { T3Client } from "./fork-session.mjs";
 import { peerClient } from "./peers.mjs";
 import { findMatches } from "./find-session.mjs";
@@ -71,5 +71,5 @@ async function main() {
       : await sourceClient.http("/api/orchestration/session-moves", input), null, 2));
   } finally { await sourceClient.close(); await destinationClient?.close(); }
 }
-if (process.argv[1] && pathToFileURL(path.resolve(process.argv[1])).href === import.meta.url)
+if (process.argv[1] && existsSync(process.argv[1]) && import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href)
   main().catch((error) => { console.error(error.message); process.exitCode = 1; });
