@@ -1,6 +1,6 @@
 ---
 name: t3-fork-session
-description: Create fresh T3 sessions, fork conversations, or move full native sessions between linked computers with the same provider, manage workers with explicit or agent-selected account/model profiles, and find, read, or message other sessions, including on linked machines. Use for T3 delegation, worker management, and session coordination; not unrelated work in the current session. User keywords "renew yourself" (hand this master to a successor), "switch WORKER to ACCOUNT" (change a worker's provider in place), "renew WORKER" (replace a worker with a new session), and "reclaim WORKERS" (take selected handed-off workers back at the user's request).
+description: Create fresh T3 sessions, fork conversations, or move full native sessions between linked computers with the same provider, manage workers with explicit constraints or deterministic account/model selection, and find, read, or message other sessions, including on linked machines. Use for T3 delegation, worker management, and session coordination; not unrelated work in the current session. User keywords "renew yourself" (hand this master to a successor), "switch WORKER to ACCOUNT" (change a worker's provider in place), "renew WORKER" (replace a worker with a new session), and "reclaim WORKERS" (take selected handed-off workers back at the user's request).
 ---
 
 # T3 Sessions and Workers
@@ -15,11 +15,12 @@ Run `t3w profile` (or `t3w profile --project NAME_OR_PATH`) to read the project
 profile, account mappings, and fixed model efforts. Read
 [conventions.md](references/conventions.md) before choosing the worker's
 name, source, and model. Naming is an agent convention, not a script restriction.
-Honor explicit account/model choices and applicable choices already made in the
-conversation. When either is unspecified, inspect capacity using the tools below
-and let the agent select the missing value. No script selects or ranks profiles.
-Retries and follow-ups retain the current profile. Use the explicit worker
-control below to change it within the user's account/model constraints.
+Honor explicit account/model/options choices and applicable choices already made
+in the conversation. For fresh work, the agent supplies task difficulty/stakes
+and a compatible execution host; the service chooses unspecified profile/account
+values as a recommendation. The master chooses before startup. Read [selection-policy.md](references/selection-policy.md) for capability
+checks, exact constraints, preview/version pinning and stable retries. Existing
+forks, moves and follow-ups retain their native/profile constraints.
 
 ## Native session moves
 
@@ -31,7 +32,7 @@ Move a saved Codex or Claude conversation between linked computers with the same
 
 The server verifies copied files and native resume before transferring ownership. The source becomes an archived, non-writable copy. T3 history, settings, attachments, Git checkpoints, staged/unstaged changes and nonignored untracked files are copied; native transcript and per-thread stores travel in bounded chunks without model token consumption. The destination gets a separate worktree. Credentials stay on each computer. Running terminal processes, ignored build outputs, external services and machine-specific tools are not transferred. The saved context is preserved, including any compaction already performed by the provider. Moving back is supported.
 
-## Inspect capacity before choosing a profile
+## Inspect host capacity and allocation support
 
 ```bash
 node <skill-directory>/scripts/check-capacity.mjs
@@ -54,8 +55,8 @@ monitoring is listed but is not necessarily consuming model quota.
 
 Quota windows depend on the provider/runtime and account. Each account's `limitedSessions` lists
 sessions its provider rejected with a usage limit, with the reset time, and
-`limitedUntil` is the latest reset still in the future. Do not spawn or resend on
-an account before its `limitedUntil`; choose another allowed account or wait.
+`limitedUntil` is a historical reset estimate. Surface it as a warning; it does not
+veto the master's explicit account choice. Actual provider errors remain errors.
 
 `t3_usage_measurements` provides retained context size, session age, turn/tool/API
 timing, token/cache usage, account quota rates and model/effort/context-band token
@@ -66,14 +67,14 @@ Check `monitoredInstanceIds`, sample counts, ages and missing values. Quota rate
 are account-wide; do not attribute a shared delta to one worker or convert token
 rates/API prices into subscription percentages. Session age includes idle time;
 non-tool wall time is not measured model compute. Use these measurements as
-evidence for the agent's decision, not an automatic account ranking.
+diagnostics alongside the service's recommendation. The master chooses whether to start.
 
-For automatic account/model selection, read [selection-policy.md](references/selection-policy.md).
-It defines the Claude preference, Codex's below-70%-weekly exception, explicit
-banked-reset priorities, and sustainable pacing. The agent applies this policy;
-the scripts supply evidence and never rank or route work.
+For fresh work, use the deterministic selection path in
+[selection-policy.md](references/selection-policy.md). The configured service policy
+recommends unspecified profiles/accounts; the master chooses the account and starts it.
+Quota and pacing warnings are advisory, never an admission veto.
 
-Use `t3w capacity --all-hosts` for selection when peers are configured. Use
+Use `t3w capacity --all-hosts` to inspect configured peers. Use
 `t3w capacity --all-hosts --load-only` for a quick count of current agents by
 account, model and effort without refreshing quotas. `loadByAccount` combines
 host counts; `hosts` retains each host's observations and failures. Local-only
@@ -93,59 +94,73 @@ pointing to that host's `node /path/to/t3-workflows/skills/t3-fork-session/scrip
 The helper adds `--local-only` to prevent recursion. SSH uses existing credentials;
 it never logs in interactively. A failed host remains unknown, not zero workers.
 
-Briefly state the chosen account/model/effort and the evidence for the choice.
-Then supply explicit `--provider` and `--model` to the session helper.
-It validates the selected profile against the live catalog. Resolve the model before naming
-its suffix. Changing an existing worker requires the explicit control below;
-never silently substitute a provider on retry.
+When the user named no computer, call `t3_recommend_computer` before choosing a fresh
+worker's host. It reads every connected computer (this one and each linked peer) at that
+moment and returns them ranked with reasons, plus the raw CPU, memory, work-disk and
+Workenv-job observations, each reading's age, and `unknown` or `offline` where a computer
+could not be measured (never zero; a computer that does not answer is listed offline after
+about 15 seconds). Pass the task's `needs` (`memoryBytes`, `cpuThreads`, `diskBytes`, `os`;
+combined for parallel workers), the project's `projectId`, and the exact
+`driver`/`model`/`instanceId`. Start on the chosen computer with its own `environmentId` and
+the project ID listed for that computer in `hosts[].projects`. The result is advice: it
+reserves nothing, never blocks a start and does not consult quota. A computer the user named
+stays exact: pass it as `environmentId`; it remains `recommendedEnvironmentId` even when
+offline or short (null only if it is not connected), and a better computer appears only in
+`reasons`. Admission is unchanged: still check heavy work on the chosen computer with its own
+workenv capacity check (`workenv capacity --needs`) before starting it.
+
+Before placing work, measure the target's physical RAM/CPU and output disk as
+required by its workstation guide. State the assessment, constraints and returned
+account/model/options. Resolve the model before naming its suffix. Keep the chosen
+host and the entire allocated start input unchanged on retries.
 
 ## Create the worker
 
 1. Choose the context needed for the assignment:
-   - **Fresh session:** use `t3w spawn` (equivalent to the helper's `--fresh`).
-     Select the target project; no source session or prepared base is needed.
-     Managed fresh sessions start in that project's directory, with the master's
-     permission and interaction modes and no inherited conversation.
+   - **Fresh work:** use the assessed preview, policy-version pin and
+     `t3_start_allocated_assignment` workflow in
+     [selection-policy.md](references/selection-policy.md). Select the target
+     project; no source session or prepared base is needed. Managed fresh workers
+     start in that project's directory with the master's permission and interaction
+     modes and no inherited conversation.
    - **Fork:** use `t3w fork`. Pass `--source-thread UUID` for a specific existing
-     session, or omit it to use the configured account base. The source must be
-     idle and on the selected account. Forks preserve its modes, branch, and
-     worktree. A project profile may share bases across repositories.
-   For corrections to a worker this master already owns, use `t3_worker_send`
-   below in the same session.
-2. Choose the title according to the conventions. Keep the assigned task intact,
-   including issue repository, number, acceptance criteria, and user constraints.
-   When reusing an existing session as the source of a new worker, explicitly
-   supersede stale assignments and conclusions with the current issue. Include
-   the worker reporting instruction below in the task sent to the worker.
-3. Generate a destination UUID once with `node -p 'crypto.randomUUID()'`. Keep
-   that ID for the entire operation, including retries.
-4. Inside T3, generate the validated MCP input with the helper below, then
-   pass its JSON unchanged to `t3_worker_spawn` on T3's MCP server. The helper's
-   `--mcp-plan` only resolves and validates; it does not create a session or send work.
-   Use a task file for multiline text; `--task-file -` also accepts stdin.
-   Never interpolate task text into shell code. Delete temporary task files.
-5. Report the worker name, provider, model, fixed effort, thread ID, and observed
-   assignment state. `queued` or `submitted` means accepted, not completed work.
+     session, or omit it for the configured account base. The source must be idle
+     and on the selected account. Preserve its native/profile constraints, modes,
+     branch and worktree. A project profile may share bases across repositories.
+   For corrections to an owned worker, use `t3_worker_send` in the same session.
+2. Keep the assigned task intact, including issue repository/number, acceptance
+   criteria and user constraints. Follow the existing title conventions. When
+   forking an existing conversation, supersede stale assignments with the current
+   task. Include the worker reporting instruction below in the initial prompt.
+3. Generate a destination UUID once and retain it for retries. Fresh allocation
+   also needs a stable assignment ID; preserve the entire pinned request and
+   start input, including prompt and title. Do not invent a master ID.
+4. For forks, generate input with `t3w fork --mcp-plan`, then pass its JSON
+   unchanged to `t3_worker_spawn`. The planner validates without creating work.
+   Use a task file for multiline text; `--task-file -` accepts stdin. Never
+   interpolate task text into shell code. Delete temporary task files.
+5. Keep returned worker and assignment receipts (`latestRequest.requestId` on
+   legacy spawn). Report actual provider, model/options, thread ID and observed
+   state. Accepted/queued/submitted work is not completed work.
 
 ```bash
-t3w spawn --project /absolute/path/to/project \
+t3w fork --project /absolute/path/to/project \
   --provider SL --model sol --name 'c344_camera_sol' \
   --thread-id <destination-uuid> --task-file /absolute/path/to/task.txt --mcp-plan
 ```
 
-For a fork, replace `spawn` with `fork` and optionally add `--source-thread UUID`.
-The skill directory's `scripts/fork-session.mjs` supports both modes directly
-with `--fresh` selecting a new session. Do not combine `--fresh` and `--source-thread`.
+The example account/model must match the intended source and user's constraints.
+For explicitly requested legacy bootstrap, `t3w spawn --mcp-plan` is the fresh
+equivalent (`--fresh` in `scripts/fork-session.mjs`). Ordinary allocated starts use
+the recommendation workflow even when warnings are present. A prior denied or
+Observation-only proposal may start with its original assignment/thread IDs.
+Do not combine `--fresh` and `--source-thread`.
 
-T3 obtains the master's identity from the authenticated MCP call. Fresh plans
-specify `projectId` and omit `sourceThreadId`; fork plans specify `sourceThreadId`.
-The source supplies inherited context and is independent of the master. Keep the returned
-worker ID and assignment `requestId` (`latestRequest.requestId` on spawn).
-The server saves ownership and the validated selection for subsequent turns.
-Use the custom worker tools for managed creation in either mode. Upstream
-`delegate_task` does not preserve this workflow's ownership and fork semantics.
-If the server lacks `workerFreshSessions`, the planner reports that a server
-update is needed; an unmanaged session cannot provide the same reporting lifecycle.
+T3 authenticates the master and saves ownership and selection for subsequent turns.
+The fork source supplies context independently of the master. Use the managed
+worker tools; upstream `delegate_task` does not preserve these ownership/fork
+semantics. Missing `workerFreshSessions` requires a server update, not an unmanaged
+session with an invented reporting lifecycle.
 
 ## Find another session's work by name
 
@@ -224,7 +239,8 @@ When reassigning an existing session, rename it to reflect its current issue/tas
 ### Switch or renew a worker
 
 The user says these to the worker's master. Either keyword authorizes the change
-without further questions; without an account, choose one with the selection policy.
+without further questions. Retain unspecified existing profile constraints; a
+fresh replacement uses the assessed path above, not a new manual account ranking.
 
 - **"switch <worker> to <account> [model] [effort]"** keeps the session and its
   conversation. `t3w worker-profile --thread-id ID --provider ACCOUNT [--model M]
@@ -238,28 +254,41 @@ without further questions; without an account, choose one with the selection pol
   starts from a context prompt, fresh unless the user adds "from base". Once the
   worker has no running turn (the user can Stop it in T3), write its full
   assignment, progress, branch and worktree, evidence and next steps to a file
-  with the reporting instruction and only the rules the user actually gave, plan with `t3w spawn --mcp-plan` (or `t3w fork`)
-  and pass the JSON to `t3_worker_spawn`. Use the new model suffix, adding 2 to the
+  with the reporting instruction and only the rules the user actually gave, use the fresh allocation path above (or `t3w fork --mcp-plan`
+  and `t3_worker_spawn` for a requested fork). Renewal preserves applicable profile
+  constraints and does not itself justify reassessment. Use the model suffix, adding 2 to the
   keyword if the name would not change (`c344_camera_opus` → `c344_camera2_opus`).
   Then settle the old worker.
 
 Worker reports state the worker's working time and the master's own: turn time
 minus tool calls over a minute, so monitoring and builds do not count. When a report
-says a worker is over its renewal threshold, renew it as above before giving it more
-work, without asking. Thresholds are the `workerRenewal` section of each machine's
-T3 `settings.json`: workers 3.5 h, masters 5 h, Codex 1.5 times longer, tool waits
-over 60 s excluded. Edits apply without a restart.
+says a worker is over its soft warning threshold, treat it as advisory: continue
+its authorized work without forcing renewal or stopping it. Settings > General >
+Session renewal configures separate master/worker warnings and optional hard automatic
+limits in `workerRenewal`. Hard limits default to off, preserving existing sessions.
+Warnings are checked on session/tool/settings activity, not a dedicated clock.
+Working time unions turn intervals and excludes overlapping long tool waits once,
+only within those turns. Defaults: worker warning 3.5 h, master warning 5 h,
+Codex multiplier 1.5, tool waits over 60 s excluded. Edits apply without restart.
+When a hard limit is enabled, T3 checkpoints at a completed-turn boundary and starts
+one successor with the same account/model/effort, permissions, workspace/job and
+ownership. Do not create a competing successor. Inspect the durable handoff and
+startup error if recovery is needed. Explicit user renewal instructions below
+still authorize manual renewal; a soft warning alone does not.
 
 ## Hand orchestration to a successor
 
 A master's turns cost more as its history grows. When the user says **"renew
 yourself"**, hand this master to a new session that starts from a context prompt,
-without asking first. Also renew at the next calm point once a worker report says
-you are over your threshold.
+without asking first. A soft working-time warning is advisory and never requires
+this manual handoff. Optional hard automation is handled by T3 at a safe completed-turn
+boundary; do not duplicate its checkpoint or successor.
 T3 moves the workers, their queued work and undelivered reports; later
 `t3_worker_report` reports go to the successor.
 
-Defaults: same project, account, model and effort; fresh context; the title's
+Use the dedicated handoff below: allocated worker startup does not transfer
+ownership of existing workers. Defaults: same project, account, model and effort;
+fresh context; the title's
 generation number incremented, or 2 appended (`simulator7_es_master` →
 `simulator8_es_master`, `vio_stream_res_bug` → `vio_stream_res_bug2`).
 "renew yourself from base" forks the account's prepared base. Anything else the
@@ -306,12 +335,12 @@ machines before relying on it.
   `queued` means waiting, `dispatched` means the other environment accepted it.
   Messages from another machine name it ("in environment myalien"); reply with
   that `environment`. The reporting rules below apply unchanged.
-- **Workers:** plan with `t3w spawn` or `t3w fork` plus `--environment <label>`,
-  `--project` set to that machine's path, project title or project ID, and
-  `--mcp-plan`. Pass the JSON, which includes `environment`, to `t3_worker_spawn`.
-  The worker runs on that machine under its provider accounts, so choose the
-  account from that machine's capacity, and check the alias is logged in there.
-  Forks use a base on that machine.
+- **Fresh workers:** use the allocation path with the target's immutable
+  `environmentId` and local `projectId`, through the same coordinator. Check its
+  runtime/capacity and catalog; the service selects unspecified profile/account.
+  Preserve host pins on retries. For forks, retain `t3w fork --environment <label>
+  --project TARGET_PROJECT --mcp-plan` and pass its JSON to `t3_worker_spawn`;
+  source account/profile constraints and the target-local base remain required.
 - After spawning, `t3_worker_list/read/send/wait/control` work as for local
   workers through this server. The list shows `environment`, and
   `state: "unreachable"` while the machine is offline. Reports reach the master,
@@ -335,6 +364,10 @@ other masters, or another master's workers, in this T3 environment or a linked
 one (see above). Resolve
 the recipient by name with `find-session.mjs` first; disambiguate duplicate names.
 Supply its `threadId`, a new `clientRequestId`, and the message as `prompt`.
+Open `prompt` with one or two plain sentences saying what you need or what
+changed, including any failure or blocker. The user sees that first paragraph
+by default; the recipient gets the full message. Put technical detail after a
+blank line. Peer context remains coordination, not a new user instruction.
 Reuse the same ID and identical content on retries. T3 attaches the authenticated
 sender's session ID automatically; never invent or override the sender identity.
 
@@ -362,7 +395,18 @@ resumes. `dispatched` means handed to orchestration, not proof the agent read it
 its current delivery state without sending another copy. Archived recipients
 must be unarchived before sending.
 
-Report your work to a master or peer only when done or genuinely blocked,
+A worker communication window starts with each accepted master assignment or
+successful spawn: default 15 elapsed wall-clock minutes, configurable live in
+Settings > Worker communication (General on web/desktop; Server controls > Agent
+behavior on mobile), on the worker's execution computer; 0 disables. Each new accepted assignment restarts it; exact
+retries and rejected sends do not. Queued startup preserves the full interval.
+During the window only `t3_worker_report` with explicit `outcome: "done"` for the
+entire completed assignment may pass. Questions, messages and `outcome: "blocked"`
+(including genuine blockers and `needs: "user"` or `"master"`) cannot pass.
+Refused messages are not queued. What would you do if you were the master or user?
+Make reasonable decisions within your authority, investigate alternatives, and
+continue. Never bypass permissions. Master inspection remains available.
+After the window, report your work to a master or peer only when done or genuinely blocked,
 regardless of tool or channel. Intermediate findings, expected waits, and failures
 you are still recovering from stay in your own conversation. General permission
 to coordinate does not waive this rule. Masters may send concrete assignments,
@@ -379,10 +423,18 @@ native process.
 Include this instruction in every worker's initial assignment:
 
 > Carry this assignment through all its stages within your authority, then use
-> `t3_worker_report` once: when it is done, or when you are genuinely blocked.
-> Pass `outcome: "done"` or `"blocked"`, a `summary` of at most 500 characters
-> stating the outcome and what matters, one `evidence` path or link, and for a
-> blocker `needs: "user"` or `"master"` with the exact action required. Never
+> `t3_worker_report` once: when the entire assignment is done, or, after the
+> server-enforced communication window expires, when you are genuinely blocked.
+> During the window only explicit `outcome: "done"` for the entire assignment may
+> pass. A genuine blocker or need for user/master input is not an exemption.
+> If refused, decide what you would do as the master or user, investigate
+> alternatives, and continue within your authority. Never bypass permissions.
+> Pass `outcome: "done"` or `"blocked"`, a `summary` of at most 300 characters
+> in one or two plain sentences giving the outcome, including any failure,
+> what remains and the exact action needed for a blocker. Put hashes, IDs, test
+> counts, long paths and technical detail in one short evidence file (about half
+> a page) or a link; no separate evidence folders or long handoffs unless asked.
+> For a blocker set `needs: "user"` or `"master"`. Never
 > list things you did not do. Use a stable `clientRequestId` for retries. Before
 > reporting a blocker, investigate, wait, or try another approach within your
 > authority; resolve what you can yourself. Progress stays in this worker
@@ -421,14 +473,17 @@ Masters must not use worker messages as a chat:
   progress without prompting every worker to reply.
 
 A final answer or ended turn alone does not notify the master. Explicit reports
-are durable. Blockers and runtime notices are delivered immediately, including
-while the master is busy or has an unanswered question. A `done` report waits
+are durable. During the communication window, explicit blocker reports are refused
+without queuing or notifying the master. Runtime notices wait until expiry and
+are delivered only if still relevant; original errors and genuine pending
+approvals remain visible in the worker/user UI. After expiry, blockers and relevant
+runtime notices can reach a busy master. A `done` report waits
 while the master's other workers are still running, for at most 20 minutes, and
 completions that are waiting together arrive as one digest. Stop suppresses automatic wake-up: the report still
 appears, and reaches the agent when the master resumes. Report `done` only after
 the assigned work and its required background checks finish. Provider failures
-and requests for input still notify automatically, labeled as runtime events
-rather than completed assignments.
+and requests for input notify automatically only after the window and if still
+relevant, labeled as runtime events rather than completed assignments.
 Never autoapprove an input/approval request.
 
 After a server restart, inspect current state before resuming anything. Automatic

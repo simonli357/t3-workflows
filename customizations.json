@@ -111,7 +111,8 @@
     "All installed account profiles remain available",
     "Preserve compatibility with the existing Android app and Windows desktop",
     "Real base fork and master-worker round trips pass",
-    "Existing workers retain ownership and reporting"
+    "Existing workers retain ownership and reporting",
+    "orchestration_events keeps idx_orch_events_stream_only_seq and idx_orch_events_stream_seq_type_cmd (add as CREATE INDEX IF NOT EXISTS migrations after schema 71); without them WorkerControls.drain full-scans the table"
   ],
   "backportBatches": [
     {
@@ -222,16 +223,13 @@
   ],
   "deployments": {
     "sliara": {
-      "version": "0.0.45+custom.33",
-      "runningVersion": "0.0.45+custom.33",
-      "sourceCommit": "dc5c22005cc340c70f511ad1b4a628d8b3762b42",
-      "serverBuildCommit": "dc5c22005cc340c70f511ad1b4a628d8b3762b42",
+      "version": "0.0.45+custom.35",
+      "runningVersion": "0.0.45+custom.35",
       "workflowCommit": "25c94d5",
-      "status": "active",
+      "status": "active; custom.35 current worker titles verified; independent retention remains capacity-gated",
       "orchestrationProtocolVersion": 1,
-      "timestamp": "2026-10-23T05:07:11.124163+00:00",
+      "timestamp": "2026-10-23T15:36:28.857906+00:00",
       "serviceRestarted": true,
-      "verifiedResumedSessions": 2,
       "profilesPreserved": true,
       "continueThreadsAfterServerUpdate": true,
       "capabilities": [
@@ -245,11 +243,22 @@
         "workerReclaim",
         "workerRetirementWarning"
       ],
-      "validation": "Native session moves active; focused backend/workflow and native resume checks passed. Restart continuation retained native IDs and profiles. See nativeSessionMovesVerification for host-specific state and any pending correction.",
-      "executableSha256": "96b27f9da4f875648005c68df4173f4157c29437392d990b23f4c551302242e4",
-      "serverArchiveSha256": "146d797c255a2b5fea32b55674225b2cf86d5243def0594a840bae1e024f61e4",
-      "activationMethod": "local service installation after a clean stop and closed-database backup; remote updater ignores custom build metadata when comparing versions",
-      "evidence": "/home/simonli/t3code-custom/build/retirement-warning-20261022/outputs/activation-status.json",
+      "validation": "79 focused WorkerControls tests, server types and focused lint passed. Packaged smoke and graceful activation preserve profiles/history/ownership/native IDs. Actual MyAlien Computers and isolated headless Sliara profile show all three online with advancing telemetry.",
+      "computersVerification": {
+        "version": "0.0.45+custom.35",
+        "checkedAt": "2026-10-23T15:36:28.857906+00:00",
+        "clientIndexSha256": "1cad1d7bd5d03a462fbe9e9ee299694caf277e13b1e39659d46f2ff902b045d4",
+        "publicClerkRelayConfigPresent": true,
+        "overviewPollingIndependent": true,
+        "evidence": "C:\\Users\\simon\\t3-workflows\\outputs\\worker-move-20261023\\integration35\\evidence\\DEPLOYMENT.md",
+        "actualClientProof": "Sliara isolated headless actual-profile catalog",
+        "cloudReauthenticationClaimed": false,
+        "clientVersion": "0.0.45+custom.34"
+      },
+      "sourceCommit": "d72352b930219b6441bca3f43254da89fcba5b1c",
+      "serverBuildCommit": "d72352b930219b6441bca3f43254da89fcba5b1c",
+      "verifiedResumedSessions": 3,
+      "executableSha256": "908f32fefab3167ef18e6eecfd931744717db63e4cdba57ef7dcfe674056018f",
       "nativeSessionMovesVerification": {
         "checkedAt": "2026-10-23T05:07:11.124163+00:00",
         "sameProviderMoves": true,
@@ -262,25 +271,28 @@
         "historyAndOwnershipPreserved": true,
         "proof": "/home/simonli/t3code-custom/build/native-session-move-20261022/patch33/outputs/sliara-preservation.json",
         "cloudClientConfigPreserved": true
+      },
+      "clientVersion": "0.0.45+custom.34",
+      "workerTitleReports": {
+        "version": "0.0.45+custom.35",
+        "checkedAt": "2026-10-23T15:36:28.857906+00:00",
+        "newReportsUseCurrentTitle": true,
+        "persistedRetryTextUnchanged": true,
+        "evidence": "C:\\Users\\simon\\t3-workflows\\outputs\\worker-move-20261023\\integration35\\evidence\\DEPLOYMENT.md"
       }
     },
     "myalien": {
-      "version": "0.0.45+custom.33",
-      "runningVersion": "0.0.45+custom.33",
-      "status": "active",
-      "serverBuildCommit": "dc5c22005cc340c70f511ad1b4a628d8b3762b42",
-      "serverArchiveSha256": "aa1aebd546621964cb143a0ad368b01f14b322f1a657b630b3df71d28951600b",
+      "version": "0.0.45+custom.35",
+      "runningVersion": "0.0.45+custom.35",
+      "status": "active; custom.35 current worker titles verified; independent retention remains capacity-gated",
       "orchestrationProtocolVersion": 1,
-      "timestamp": "2026-10-23T05:07:11.124163+00:00",
+      "timestamp": "2026-10-23T15:36:28.857906+00:00",
       "desktopRestarted": true,
-      "activeSessionsBeforeRestart": 4,
-      "preservedSessionCount": 38,
       "measurementInstanceIds": [
         "codex",
         "claudeAgent"
       ],
-      "validation": "Native session moves active; focused backend/workflow and native resume checks passed. Restart continuation retained native IDs and profiles. See nativeSessionMovesVerification for host-specific state and any pending correction.",
-      "sourceCommit": "dc5c22005cc340c70f511ad1b4a628d8b3762b42",
+      "validation": "79 focused WorkerControls tests, server types and focused lint passed. Packaged smoke and graceful activation preserve profiles/history/ownership/native IDs. Actual MyAlien Computers and isolated headless Sliara profile show all three online with advancing telemetry.",
       "capabilities": [
         "boundedSessionHistory",
         "computers",
@@ -292,7 +304,6 @@
         "workerReclaim",
         "workerRetirementWarning"
       ],
-      "rollbackArchive": "C:/Users/simon/t3-fork-install/server-custom25.asar",
       "peers": [
         {
           "label": "sliara",
@@ -306,10 +317,25 @@
         "toolWaitSeconds": 60
       },
       "continueThreadsAfterServerUpdate": true,
+      "computersVerification": {
+        "version": "0.0.45+custom.35",
+        "checkedAt": "2026-10-23T15:36:28.857906+00:00",
+        "clientIndexSha256": "1cad1d7bd5d03a462fbe9e9ee299694caf277e13b1e39659d46f2ff902b045d4",
+        "publicClerkRelayConfigPresent": true,
+        "overviewPollingIndependent": true,
+        "evidence": "C:\\Users\\simon\\t3-workflows\\outputs\\worker-move-20261023\\integration35\\evidence\\DEPLOYMENT.md",
+        "actualClientProof": "native MyAlien window",
+        "cloudReauthenticationClaimed": false,
+        "clientVersion": "0.0.45+custom.34"
+      },
+      "serverArchiveSha256": "e87f79a97a30f7aa210d6f090e16ef5d7e5f32ff3ff7d49c15f60a1eb12788c4",
+      "appArchiveSha256": "922ced5c3dedccbcb5e18f0edfba4bacde6606de6669cc8db325185ea2c387dd",
+      "sourceCommit": "d72352b930219b6441bca3f43254da89fcba5b1c",
+      "serverBuildCommit": "d72352b930219b6441bca3f43254da89fcba5b1c",
       "workflowCommit": "25c94d5",
       "profilesPreserved": true,
-      "verifiedResumedSessions": 4,
-      "appArchiveSha256": "a1a8d9388ef560ac317f2d671dea10fb29440ea07097051b42253ffa48dfa264",
+      "activeSessionsBeforeRestart": 4,
+      "verifiedResumedSessions": 8,
       "nativeSessionMovesVerification": {
         "checkedAt": "2026-10-23T05:07:11.124163+00:00",
         "sameProviderMoves": true,
@@ -322,19 +348,21 @@
         "backendAndDesktopShellPreservedDuringClientUpdate": true,
         "proof": "/home/simonli/t3code-custom/build/native-session-move-20261022/patch33/outputs/myalien-public-native-continuation.json",
         "cloudClientConfigPreserved": true
+      },
+      "clientVersion": "0.0.45+custom.34",
+      "workerTitleReports": {
+        "version": "0.0.45+custom.35",
+        "checkedAt": "2026-10-23T15:36:28.857906+00:00",
+        "newReportsUseCurrentTitle": true,
+        "persistedRetryTextUnchanged": true,
+        "evidence": "C:\\Users\\simon\\t3-workflows\\outputs\\worker-move-20261023\\integration35\\evidence\\DEPLOYMENT.md"
       }
     },
     "myacer": {
-      "version": "0.0.45+custom.33",
-      "runningVersion": "0.0.45+custom.33",
-      "sourceCommit": "dc5c22005cc340c70f511ad1b4a628d8b3762b42",
-      "serverBuildCommit": "dc5c22005cc340c70f511ad1b4a628d8b3762b42",
-      "workflowCommit": "25c94d5",
-      "status": "active",
-      "timestamp": "2026-10-23T14:00:51.875089+00:00",
-      "orchestrationProtocolVersion": 1,
-      "profilesPreserved": true,
-      "continueThreadsAfterServerUpdate": true,
+      "version": "0.0.45+custom.34",
+      "runningVersion": "0.0.45+custom.34",
+      "status": "active; client repair verified; project provisioning and independent retention still capacity-gated",
+      "timestamp": "2026-10-23T15:03:17.974184+00:00",
       "capabilities": [
         "boundedSessionHistory",
         "computers",
@@ -346,6 +374,23 @@
         "workerReclaim",
         "workerRetirementWarning"
       ],
+      "computersVerification": {
+        "version": "0.0.45+custom.34",
+        "checkedAt": "2026-10-23T15:03:17.974184+00:00",
+        "clientIndexSha256": "1cad1d7bd5d03a462fbe9e9ee299694caf277e13b1e39659d46f2ff902b045d4",
+        "publicClerkRelayConfigPresent": true,
+        "overviewPollingIndependent": true,
+        "evidence": "C:/Users/simon/t3-workflows/outputs/worker-move-20261023/integration/evidence/CLIENT_ACCEPTANCE.md",
+        "actualClientProof": "fresh MyAcer telemetry in actual MyAlien and copied Sliara clients",
+        "cloudReauthenticationClaimed": false
+      },
+      "validation": "custom.34 activation and history/profile/ownership/settings preservation passed; active native conversation IDs unchanged. Actual MyAlien window and isolated headless copy of Sliara Profile 1 show fresh connected telemetry. Capacity/retention limits remain explicit.",
+      "sourceCommit": "d020dba40f78e1a50df03884a92cd207e26a3b8d",
+      "serverBuildCommit": "d020dba40f78e1a50df03884a92cd207e26a3b8d",
+      "workflowCommit": "25c94d5",
+      "orchestrationProtocolVersion": 1,
+      "profilesPreserved": true,
+      "continueThreadsAfterServerUpdate": true,
       "serviceRestarted": true,
       "verifiedResumedSessions": 5,
       "nativeSessionMovesVerification": {
@@ -365,8 +410,15 @@
         "proof": "/home/simonli/t3code-custom/build/native-session-move-20261022/patch33/outputs/myacer33/verification.json",
         "rollback": "/home/slsecret/.t3/runtime/db-backup/native-session-move-custom33"
       },
-      "validation": "Live custom.33 executable, service identity and cloud client verified; all 12 profiles/native identities, 12 worker rows and 685 prior message identities preserved; five working sessions resumed. Update completed using 34.42 MiB additional under the user-approved 40 MiB exception.",
-      "executableSha256": "96b27f9da4f875648005c68df4173f4157c29437392d990b23f4c551302242e4"
+      "executableSha256": "cf6fb0d22381568d5fec044b0c4c93378c50b6adbe6d8e6290df7215df97cf8e",
+      "workerTitleReports": {
+        "version": "0.0.45+custom.34",
+        "pendingVersion": "0.0.45+custom.35",
+        "checkedAt": "2026-10-23T15:36:29.759193+00:00",
+        "status": "custom.35 waiting for Kingston reserve + 2 GiB growth + admitted code-only payload",
+        "deficitBytes": 1760648388,
+        "evidence": "C:\\Users\\simon\\t3-workflows\\outputs\\worker-move-20261023\\integration35\\evidence\\DEPLOYMENT.md"
+      }
     }
   },
   "localFixes": [
@@ -441,6 +493,24 @@
       "version": "0.0.45+custom.33",
       "feature": "Same-provider native Codex/Claude moves between linked computers, retaining native identity, complete saved conversation/context, workspace changes, checkpoints, attachments and current worker/report routing; verified single writable owner, cancellation and recovery. CLI, MCP, desktop/web and mobile source integration.",
       "validation": "146-test focused backend suite plus targeted worker-execution and recovery regressions; 13 workflow tests; scoped server/web/mobile typechecks; Linux and Windows packaged startup; copied Codex/Claude native state resumes without a model turn; live profiles/native IDs retained across activation. MyAcer also verified at custom.33 under the user-approved bounded storage exception; five working sessions resumed with profiles and native IDs intact."
+    },
+    {
+      "commit": "d020dba40f78e1a50df03884a92cd207e26a3b8d",
+      "version": "0.0.45+custom.34",
+      "feature": "Computers live polling; canonical Git/SSH-alias and explicit non-Git project identity; old-client identity negotiation; Toronto HH:mm reports and visible session computer labels; safe SSH custom SemVer and public-config propagation; Windows sparkline build and phone metric layout.",
+      "validation": "Focused server/web/contracts/shared/public-config/compatibility tests, scoped server/web types, isolated real HTTP/socket compatibility, native and Linux packaged smoke, all-three activation and native-ID preservation, actual native MyAlien and isolated headless Sliara telemetry."
+    },
+    {
+      "commit": "d72352b930219b6441bca3f43254da89fcba5b1c",
+      "version": "0.0.45+custom.35",
+      "feature": "New explicit/runtime worker reports and worker descriptions resolve current thread titles; persisted report headers/text and idempotent retries remain unchanged.",
+      "validation": "79 focused WorkerControls tests including rename/new report, retry, legacy reports and Toronto timestamps; scoped server types and focused lint; Windows/Linux packaged smoke; MyAlien/Sliara actual-client activation and continuation."
+    },
+    {
+      "commit": "none (live database change on sliara; no source commit exists yet)",
+      "version": "2026-10-25 18:40 EDT, applied while running 0.0.45+custom.50 (schema 71); independent of the server version",
+      "feature": "Covering indexes idx_orch_events_stream_only_seq (stream_id, sequence, event_type, command_id) and idx_orch_events_stream_seq_type_cmd (aggregate_kind, stream_id, sequence, event_type, command_id) on orchestration_events. WorkerControls.drain's thread.turn-interrupt-requested/turn-start-requested lookup has no aggregate_kind condition, so it full-scanned the 7.7 GB table (30-85 s per call), freezing the server and making startup take 12-15 minutes. Kept across restarts by ~/.local/share/t3code-custom/ensure-orchestration-indexes.sh, run as ExecStartPre from the t3code.service drop-in 20-ensure-indexes.conf. TODO: ship as migrations in the next custom build, then remove the drop-in. myalien checked 2026-10-25: 2.7 GB database, same missing indexes, two event-loop stalls (max 35 s); indexes not applied yet because that needs a T3 stop that interrupts its running sessions, so apply them at its next planned restart (sqlite3 is on its PATH). myacer was not checked.",
+      "validation": "Snapshot copy: real-shape query 30-70 s -> 5 ms, results identical. Live: server answers 18 s after start (was over 14 min), the query runs in 1 ms, no SQL statement over 500 ms and no new event-loop stalls; peers myalien and myacer ok."
     }
   ]
 }

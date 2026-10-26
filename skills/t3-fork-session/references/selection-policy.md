@@ -1,85 +1,113 @@
-# Account and model selection
+# Recommend, choose, start
 
-Apply this policy when the user leaves the account or model unspecified. Choose
-using the evidence; no script ranks accounts or routes sessions.
+Allocation is advisory. The service recommends compatible accounts and profiles,
+shows forecasts and warnings, and records assignment accounting. The master decides.
+Pacing, borrowing, reserves, missing/stale quota estimates and historical rejection
+projections are not admission vetoes. Never retune scores or policies just to make
+an account eligible. Actual provider failures remain failures.
 
-## Priorities
+## Ordinary managed workflow
 
-1. Honor explicit account/model/effort choices and compatible project profiles.
-   An explicit fork source fixes its account. Preserve the selected profile for
-   retries and follow-ups; use worker controls for an authorized change.
-2. If the user designates account X for using a banked reset **this week**,
-   prioritize X for suitable work while capacity allows. Retain that preference
-   and its expiry in the master's task context and handoff; do not infer a
-   preference merely because credits exist or carry it into the next week.
-   Priority is not permission to redeem a credit. Redemption still needs explicit
-   authorization; an exhausted account cannot run until a fresh reading confirms
-   usable capacity. If multiple accounts are designated, compare their capacity
-   and expiry times unless the user specified an order.
-3. Otherwise prefer Claude accounts when their five-hour and weekly allowance can
-   sustain the existing load plus the proposed work until the relevant resets.
-4. A Codex account has **equal priority with Claude** in its current weekly window
-   while weekly usage is **below 70% used** (more than 30% remaining). At 70% used
-   or above, Claude regains preference. A newly verified weekly reset renews this
-   eligibility. Do not invent a fixed number of hours for "right after reset";
-   the below-70% period is the exception. The five-hour limit still applies.
-   Use the account-wide weekly window, not a model-specific bucket or DeepSeek's
-   Codex harness limits. A missing/stale weekly reading cannot establish eligibility.
-5. Within the preferred tier, choose a task-suitable model/account with sustainable
-   headroom, considering current load and reset proximity. Equal priority does
-   not mean round-robin or always picking Codex. If Claude cannot sustain the
-   work, consider another suitable allowed provider, including Codex above 70%,
-   with a brief explanation. DeepSeek is not part of the Codex weekly exception.
+1. Choose the execution computer and project within the user's constraints and its
+   workstation resource rules. Resolve real environment/project IDs and native
+   account/model aliases with `t3w profile` and the target catalog. Preserve exact
+   user-selected model, effort, speed, family and host.
+   When the user named no computer, call `t3_recommend_computer` first (advice only; it
+   reserves nothing and never blocks a start) with the task's `needs`, `projectId` and exact
+   runtime. Use its `recommendedEnvironmentId` with that computer's project ID from
+   `hosts[].projects`; null means no computer was recommended, so choose explicitly. A
+   computer the user named is passed as `environmentId` and is never replaced.
+2. Keep one assignment ID and destination thread ID. Call `t3_allocate_account`
+   with `preview: true`. For unspecified profiles use `selection: "automatic"`,
+   `allowedDrivers` and an assessment; for an already exact profile use the exact
+   request variant. A preview starts nothing and holds no reservation.
+3. Read the recommendation and its warnings. The master chooses the account by
+   setting `request.explicitInstanceId` to its native ID. This is an ordinary choice,
+   not an override approval flag. Keep the selected model/options and execution
+   host. If using an assessed request, keep its assessment and returned model-policy
+   version. An explicit account cannot silently lower effort or switch model.
+4. Call `t3_start_allocated_assignment` with `kind: "worker"`, that request, the
+   target `projectId`, convention-based `title` and complete `prompt` including
+   the worker reporting instruction. T3 authenticates the master and inherits its
+   permission/interaction modes. Do not supply an owner ID or invent mode fields.
+5. Inspect returned worker/assignment receipts and provider state. `submitted`
+   means startup was accepted, not that the task completed or quota was guaranteed.
+   Retry the entire original start input after a lost response, including IDs,
+   project, title and prompt. The durable receipt prevents duplicate work.
 
-Use the actual reported reset timestamps, rather than hardcoding Sunday for all
-Claude accounts. A reset timestamp in the past is not evidence of replenishment.
-Respect active usage-limit rejections and `limitedUntil`; do not keep retrying
-an exhausted account.
+For example, retain an existing request and choose a native account:
 
-## Judge sustainable consumption
+```json
+{
+  "preview": true,
+  "request": {
+    "selection": "automatic",
+    "assignmentId": "existing-assignment-id",
+    "threadId": "existing-destination-thread-id",
+    "environmentId": "chosen-execution-environment-id",
+    "allowedDrivers": ["codex"],
+    "explicitInstanceId": "chosen-native-account-id",
+    "assessment": {
+      "difficulty": 7,
+      "difficultyReason": "Interacting behavior needs careful reasoning.",
+      "stakes": 6,
+      "stakesReason": "Incorrect work is consequential but recoverable."
+    }
+  }
+}
+```
 
-Read `t3w capacity --all-hosts` before choosing. Compare remaining allowance and
-time until reset in **both** short and weekly windows, their ages, active
-account/model/effort counts, and queued workers this master just assigned.
-Use the freshest trustworthy quota observation for the same account/window;
-never sum duplicate quota percentages across machines. Check login identity
-hints: an alias may represent different logins on different hosts.
+Use actual IDs, not these placeholders. Pass the same request to Start with the
+project/title/prompt. Explicit existing task choices take precedence over this
+example. For an assessed exact model, use `override: {driver, model, options,
+reason}`; its driver must be in `allowedDrivers`. Preserve every explicit option.
+The exact request variant instead takes `driver`, `model` and `options` directly.
+Neither request requires an extra quota override or approval flag.
 
-`sustainablePercentPerHour` is remaining percentage divided by hours until reset.
-Compare it with recent measured account consumption and uncertainty, allowing
-headroom for the additional worker and workload changes. For example, 80% left
-with four hours to reset allows 20 percentage points/hour on average; a measured
-40 points/hour with unchanged load would exhaust it early. A lull is not proof
-that another heavy worker is sustainable, nor is one short spike a reliable
-long-term rate. Check sample counts, covered time, stale/saturated readings and
-reset boundaries before extrapolating. Do not present exact exhaustion forecasts
-when the evidence cannot support them.
+## Existing proposals and retries
 
-Only **SL and ARA** contribute consumption history and model/effort baselines.
-Other accounts may be shared: use current quota and visible T3 load as incomplete
-evidence, not a private-account burn-rate estimate. SL/ARA baselines may suggest
-relative demand for comparable tasks, models, effort and context sizes; do not
-transfer an exact percentage/hour to a different account or subscription.
+A previously denied or Observation-only proposal can start on the same assignment
+and thread IDs. Before startup, the master can choose AD, SL or another permitted
+account using `explicitInstanceId`; resolve aliases through the target profile.
+Keep the prior task assessment, exact profile and host. Do not fabricate new IDs
+or weaken constraints to escape a recommendation. Unused expired accounting can
+be renewed on the same identity. Once a start was attempted, preserve the entire
+input and reconcile its receipt before changing anything.
 
-Model/effort/context-band token baselines are not per-model subscription quota
-rates. Account-wide quota deltas can include terminal sessions, other hosts and
-native subagents. Never divide a mixed account delta by the worker count and
-call it an Opus or Astra rate. Consider context size, cache reuse, turn duration,
-session age and expected remaining work without treating idle/tool time as model
-compute. Unknown measurements remain unknown; start conservatively and reassess
-before adding workers rather than pretending a theoretical percentage is known.
+A live older server returning `observation` has started nothing. Use the reviewed
+advisory-capable deployment; do not misreport that result as a running worker.
+Unsupported profiles, ownership conflicts, unavailable coordinator/execution
+connections and actual provider auth/quota errors must be surfaced honestly.
+Historical warnings are not proof that a fresh provider attempt will fail, and
+low numeric usage is not a guarantee of success. Never clear historical errors,
+redeem reset credits, or start extra test turns to obtain an allowed receipt.
 
-## Model and effort
+## Assessments and native continuity
 
-Choose among the project's advertised compatible profiles using the task's
-reasoning needs and the available evidence. Use stronger profiles for difficult
-reasoning or consequential reviews; a smaller suitable profile can handle
-bounded routine work. Do not weaken a user-specified model or sacrifice task
-requirements merely to consume a preferred account's quota. Use the configured
-fixed effort for the chosen profile unless the user explicitly overrides it.
+Score the scoped assignment on difficulty and stakes, each an integer from 0 to 10
+with its own concise reason (1-500 characters). Difficulty covers reasoning,
+uncertainty and interacting components; stakes covers impact, reversibility and
+detectability. The rubric is 0-3 routine/low, 4-6 moderate, 7 high, 8 very high,
+9 extreme, 10 exceptional. Each provider table has 121 independently editable
+exact difficulty/stakes pairs (0-10 on each axis); the rubric does not group
+editable cells. Older saved tables retain every pair's choice when read. The
+table recommends exact model/effort profiles. Do not copy its mapping into
+prompts, alter scores for quota, or assume model/effort is a linear cost scale.
+Only configured capability alternatives may fill unsupported automatic profiles;
+quota pressure never selects a weaker model or another computer.
 
-Briefly state account/model/effort, the priority applied, remaining windows/reset
-times, and relevant load or uncertainty. Recheck active load before each added
-worker; reuse a recent quota snapshot when relevant rather than hammering refresh.
-If there is no suitable supported choice, state the specific gap instead of
-silently routing to an unavailable account or changing the task.
+An existing native session is not a fresh allocation. Forks, moves, resumes,
+follow-ups and orchestration handoff retain their dedicated continuity/ownership
+workflows. Fresh Start does not replace a native identity. Reassessment is for a
+substantive failure or scope change, uses its existing lineage semantics and new
+assignment/thread identity, and needs consent for a fresh provider family. A quota
+warning, transport failure or renewal alone does not justify reassessment.
+
+## Availability and tools
+
+Inspect the actual MCP schemas: `t3_allocate_account` and
+`t3_start_allocated_assignment` provide recommendations and managed startup.
+Reconnect discovery after deployment. Do not infer support from a version string
+or infer absence from a network failure. The existing explicitly requested legacy
+bootstrap/fork workflows remain available for their intended use; no fallback
+maze is needed for an ordinary recommendation with warnings.
