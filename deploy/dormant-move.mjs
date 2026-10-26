@@ -11,6 +11,7 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 // bytes. The bounded files live beside the owned release and are never reused.
 export function readPeerProof(run, args, sourceRoot, platform = process.platform) {
   if (platform !== 'win32') return JSON.parse(run('ssh', args, { timeout: 75000 }));
+  for (let attempt = 0; attempt < 3; attempt++) {
   const directory = fs.mkdtempSync(path.join(sourceRoot, '.dormant-peer-'));
   const output = path.join(directory, 'stdout'), error = path.join(directory, 'stderr');
   const out = fs.openSync(output, 'wx', 0o600), err = fs.openSync(error, 'wx', 0o600);
@@ -18,9 +19,16 @@ export function readPeerProof(run, args, sourceRoot, platform = process.platform
     run('ssh', args, { timeout: 75000, stdio: ['ignore', out, err] });
     check(fs.statSync(output).size <= 1024 * 1024, 'move-recovery', 'Peer proof exceeds its bounded size');
     return JSON.parse(fs.readFileSync(output, 'utf8'));
+  } catch (failure) {
+    // Automatic source retries clear the error briefly. Retry observation only;
+    // every successful attempt must still pass the complete unchanged proof.
+    const reason = fs.statSync(error).size <= 16384 ? fs.readFileSync(error, 'utf8').trim().split('\n').at(-1) : '';
+    const retrying = reason === 'AssertionError: Move is not the dormant reviewed failure' || reason === 'AssertionError: Source changed during proof';
+    if (!retrying || attempt === 2) throw failure;
   } finally {
     fs.closeSync(out); fs.closeSync(err);
     fs.rmSync(directory, { recursive: true });
+  }
   }
 }
 
@@ -58,7 +66,10 @@ export function verifyDormantMove(m, t, sourceRoot, run, snapshot) {
   check(args.every(a => typeof a === 'string' && a && !/[\x00-\x1f]/.test(a)), 'move-recovery', 'Invalid peer proof command');
   const command = peer.shell === 'posix' ? args.map(quote).join(' ') : 'powershell.exe -NoProfile -NonInteractive -EncodedCommand ' + Buffer.from('& ' + args.map(psQuote).join(' ') + '; exit $LASTEXITCODE', 'utf16le').toString('base64');
   const remote = readPeerProof(run, ['-n', '-T', '-o', 'BatchMode=yes', '-o', 'StrictHostKeyChecking=yes', '-o', 'ConnectTimeout=10', '--', peer.ssh, command], sourceRoot);
-  const source = isSource ? local : remote, destination = isSource ? remote : local;
+  // A peer observation can span a retry. Recheck the destination locally after
+  // it returns so a newly created reservation cannot borrow the earlier read.
+  const destinationNow = isSource ? remote : JSON.parse(run(t.python, ['-B', script, request(t.baseDir, 'destination')], { timeout: 60000 }));
+  const source = isSource ? local : remote, destination = destinationNow;
   assertDormantProof(decision, source, destination);
   // Retain the exact original copying/error receipt in the decision; updated_at
   // may advance only for an identical failed automatic retry. Rehash all bytes.

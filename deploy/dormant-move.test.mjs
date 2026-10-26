@@ -65,3 +65,38 @@ test('Windows peer proof uses fresh regular files and requires successful comple
   assert.deepEqual(fs.readdirSync(tmp), []);
  } finally {fs.rmSync(tmp,{recursive:true});}
 });
+
+test('Windows retries an automatic move race but never accepts failed output', () => {
+ const tmp = fs.mkdtempSync(path.join(process.env.TMPDIR ?? os.tmpdir(), 'peer-race-'));
+ try {
+  let calls = 0;
+  const race = (_exe, _args, options) => {
+   calls++;
+   fs.writeSync(options.stdio[1], JSON.stringify({attempt:calls}));
+   if (calls < 3) {
+    fs.writeSync(options.stdio[2], 'AssertionError: Move is not the dormant reviewed failure\n');
+    throw new Error('peer refused');
+   }
+  };
+  assert.deepEqual(readPeerProof(race, [], tmp, 'win32'), {attempt:3});
+  assert.equal(calls, 3);
+  calls = 0;
+  const blocked = (_exe, _args, options) => {
+   calls++;
+   fs.writeSync(options.stdio[1], '{"proof":true}');
+   fs.writeSync(options.stdio[2], 'AssertionError: Source changed during proof\n');
+   throw new Error('still copying');
+  };
+  assert.throws(()=>readPeerProof(blocked, [], tmp, 'win32'), /still copying/);
+  assert.equal(calls, 3);
+  calls = 0;
+  const other = (_exe, _args, options) => {
+   calls++;
+   fs.writeSync(options.stdio[2], 'AssertionError: Destination receipt or reservation appeared\n');
+   throw new Error('new reservation');
+  };
+  assert.throws(()=>readPeerProof(other, [], tmp, 'win32'), /new reservation/);
+  assert.equal(calls, 1);
+  assert.deepEqual(fs.readdirSync(tmp), []);
+ } finally {fs.rmSync(tmp,{recursive:true});}
+});
