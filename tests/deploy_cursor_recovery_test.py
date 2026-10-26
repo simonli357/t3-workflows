@@ -1,4 +1,5 @@
 import copy
+from contextlib import closing
 import importlib.util
 import json
 import hashlib
@@ -105,7 +106,7 @@ class SealedCursorRecovery(unittest.TestCase):
         (project / self.path.name).write_bytes(self.path.read_bytes())
         (base / 'userdata/settings.json').write_text(json.dumps({'providerInstances': {'account': {'driver': 'claudeAgent', 'config': {'homePath': str(native_home)}}}}))
         database = base / 'userdata/state.sqlite'
-        with sqlite3.connect(database) as db:
+        with closing(sqlite3.connect(database)) as db, db:
             db.executescript('''
               CREATE TABLE projection_turns(row_id INTEGER,thread_id TEXT,turn_id TEXT,pending_message_id TEXT);
               CREATE TABLE orchestration_events(sequence INTEGER,aggregate_kind TEXT,stream_id TEXT,event_type TEXT,command_id TEXT,actor_kind TEXT,payload_json TEXT);
@@ -140,7 +141,7 @@ class SealedCursorRecovery(unittest.TestCase):
 
     def test_unrequested_native_turn_remains_blocked(self):
         root, database = self.fixture()
-        with sqlite3.connect(database) as db:
+        with closing(sqlite3.connect(database)) as db, db:
             db.execute("UPDATE projection_turns SET pending_message_id=NULL WHERE turn_id='turn-new'")
         proof = host.activity_reconciliation(str(root))
         self.assertEqual(proof['bindingEntries'], [])
