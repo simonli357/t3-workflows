@@ -15,10 +15,21 @@ Run `t3w profile` (or `t3w profile --project NAME_OR_PATH`) to read the project
 profile, account mappings, and fixed model efforts. Read
 [conventions.md](references/conventions.md) before choosing the worker's
 name, source, and model. Naming is an agent convention, not a script restriction.
-Honor explicit account/model/options choices and applicable choices already made
-in the conversation. For fresh work, the agent supplies task difficulty/stakes
-and a compatible execution host; the service chooses unspecified profile/account
-values as a recommendation. The master chooses before startup. Read [selection-policy.md](references/selection-policy.md) for capability
+**Every worker creation is scored and recommended.** The master always scores the
+assignment (difficulty and stakes, each 0-10 with a reason): `request.assessment` for
+`selection: "automatic"`, otherwise top-level `assessment` on `t3_start_allocated_assignment`
+and `t3_worker_spawn` (`t3w spawn|fork --mcp-plan --difficulty N --difficulty-reason TEXT
+--stakes N --stakes-reason TEXT`). The server always runs all three recommendations,
+model/effort from the difficulty/stakes table, account from allocation and computer
+advice, and records them next to the actual choice. Pin only what the user specified;
+the rest comes from the recommendation. User choices are recorded overrides: a pinned
+choice that differs from its recommendation needs `overrides.model`, `overrides.account`
+or `overrides.computer` with the reason, such as "user specified ES Opus xhigh". A fork
+keeps its source's account and model; the server records that continuity reason itself.
+Recommendations are advice, never an admission veto; unavailable advice is recorded and
+the start proceeds.
+
+Read [selection-policy.md](references/selection-policy.md) for capability
 checks, exact constraints, preview/version pinning and stable retries. Existing
 forks, moves and follow-ups retain their native/profile constraints.
 
@@ -135,18 +146,22 @@ host and the entire allocated start input unchanged on retries.
 3. Generate a destination UUID once and retain it for retries. Fresh allocation
    also needs a stable assignment ID; preserve the entire pinned request and
    start input, including prompt and title. Do not invent a master ID.
-4. For forks, generate input with `t3w fork --mcp-plan`, then pass its JSON
+4. For forks, generate input with `t3w fork --mcp-plan` including the assessment
+   flags, then pass its JSON
    unchanged to `t3_worker_spawn`. The planner validates without creating work.
    Use a task file for multiline text; `--task-file -` accepts stdin. Never
    interpolate task text into shell code. Delete temporary task files.
 5. Keep returned worker and assignment receipts (`latestRequest.requestId` on
-   legacy spawn). Report actual provider, model/options, thread ID and observed
-   state. Accepted/queued/submitted work is not completed work.
+   legacy spawn). Report actual provider, model/options, the recommended-vs-chosen
+   summary, thread ID and observed state. Accepted/queued/submitted work is not completed work.
 
 ```bash
 t3w fork --project /absolute/path/to/project \
   --provider SL --model sol --name 'c344_camera_sol' \
-  --thread-id <destination-uuid> --task-file /absolute/path/to/task.txt --mcp-plan
+  --thread-id <destination-uuid> --task-file /absolute/path/to/task.txt --mcp-plan \
+  --difficulty 5 --difficulty-reason 'Two interacting services' \
+  --stakes 4 --stakes-reason 'Reversible; tests catch regressions' \
+  --override-model 'user specified SL Sol'
 ```
 
 The example account/model must match the intended source and user's constraints.

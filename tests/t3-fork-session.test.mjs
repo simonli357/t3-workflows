@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import test from "node:test";
-import { MODELS, PROVIDERS, T3Client, planFork, runFork, workerInput } from "../skills/t3-fork-session/scripts/fork-session.mjs";
+import { MODELS, PROVIDERS, T3Client, planFork, recommendationInput, runFork, workerInput } from "../skills/t3-fork-session/scripts/fork-session.mjs";
 
 function fixture() {
   const project = { id: "control", title: "SControl", workspaceRoot: "/scandy/ScandyControl" };
@@ -325,4 +325,17 @@ test("self-fork plans need no base or caller-provided master identity", () => {
   assert.equal(workerInput(plan, data.input.task).selfFork, true);
   assert.equal(workerInput(plan, data.input.task).sourceThreadId, undefined);
   assert.throws(() => planFork(data.shell, data.config, { ...data.input, selfFork: true }), /requires --handoff-plan/);
+});
+
+test("worker plans require the master's assessment and carry override reasons", () => {
+  assert.throws(() => recommendationInput({ difficulty: "3", stakes: "4" }), /--difficulty-reason, --stakes-reason/);
+  assert.throws(() => recommendationInput({ difficulty: "11", "difficulty-reason": "a", stakes: "4", "stakes-reason": "b" }), /--difficulty must be an integer/);
+  const recommendation = recommendationInput({ difficulty: "3", "difficulty-reason": "Routine", stakes: "4", "stakes-reason": "Reversible", "override-model": "user specified ES Opus xhigh" });
+  assert.deepEqual(recommendation, {
+    assessment: { difficulty: 3, difficultyReason: "Routine", stakes: 4, stakesReason: "Reversible" },
+    overrides: { model: "user specified ES Opus xhigh" },
+  });
+  const input = workerInput({ threadId: "t", projectId: "p", name: "n", modelSelection: { instanceId: "i", model: "m" } }, "task", recommendation);
+  assert.deepEqual(input.assessment, recommendation.assessment);
+  assert.deepEqual(input.overrides, recommendation.overrides);
 });
