@@ -239,3 +239,16 @@ test('desktop native shutdown support is mandatory for each working session', as
   await assert.rejects(preflight(s.m, s.t, s.adapter), /continueThreads/);
   s.live.snapshot.sessions[0].continueOnShutdown = true; await preflight(s.m, s.t, s.adapter);
 });
+
+// The opt-in must not affect the ordinary gate or later preservation acceptance.
+test('dormant recovery requires native proof and rechecks after staging', async () => {
+  const s = scenario(); s.live.snapshot.blockingOperations = ['move:678bac1d-7caf-45cc-a6fb-a69039215c46'];
+  await assert.rejects(preflight(s.m, s.t, s.adapter), { code: 'unsupported' });
+  s.m.dormantMoveRecovery = { source: 'review.json', sha256: 'a'.repeat(64) };
+  await assert.rejects(preflight(s.m, s.t, s.adapter), { code: 'move-recovery' });
+  let proofs = 0;
+  s.adapter.verifyDormantMove = () => { if (++proofs > 1) throw new DeployError('move-recovery', 'Destination reservation appeared'); return {}; };
+  await execute(s.m, s.t, s.adapter, s.state, 'apply');
+  assert.equal(s.state.phase, 'preflight-failed'); assert.equal(proofs, 2);
+  assert.equal(s.calls.some(c => c[0] === 'activate'), false);
+});

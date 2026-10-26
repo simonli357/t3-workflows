@@ -203,7 +203,10 @@ export async function preflight(m, t, adapter, { staged = false, after = false }
   check(!live.conflictingUpdate, 'conflict', 'Another update is pending');
   if (!after) {
     checkSessions(live.snapshot);
-    check(!(live.snapshot.blockingOperations?.length), 'unsupported', 'An ownership transaction or native move is in flight; let its supported reconciliation finish before deployment');
+    if (m.dormantMoveRecovery) {
+      check(typeof adapter.verifyDormantMove === 'function', 'move-recovery', 'Native recovery proof is unavailable');
+      live.dormantMoveRecovery = await adapter.verifyDormantMove(live.snapshot);
+    } else check(!(live.snapshot.blockingOperations?.length), 'unsupported', 'An ownership transaction or native move is in flight; let its supported reconciliation finish before deployment');
     check(live.snapshot.sessions.filter(eligible).every(s => s.continueOnShutdown === true), 'unsupported', 'Every active session needs its existing effective continueThreadsAfterServerUpdate setting enabled');
   }
   if (!after) await adapter.validatePayload(payload, staged);

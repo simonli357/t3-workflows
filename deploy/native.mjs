@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import { verifyDormantMove } from './dormant-move.mjs';
 import path from 'node:path';
 import os from 'node:os';
 import { execFileSync } from 'node:child_process';
@@ -189,6 +190,7 @@ export function makeNative(t, m, manifestPath, dependencies = {}) {
   async function prepareDatabase(payload) {
     checkBackupRehearsal();
     const current = snapshot(); checkDatabase(m, current.database);
+    if (m.dormantMoveRecovery) adapter.verifyDormantMove(current);
     // The last running-host plan precedes shutdown writes. Reuse this closed,
     // consistent measurement for the ceiling, peak budget and backup request.
     if (m.compatibility.migrations === 'forward-only') check(current.database.logicalBytes <= m.compatibility.database.maxSourceBytes, 'migration', 'Closed database exceeds the rehearsed source-size ceiling; retain the closed install for review');
@@ -314,6 +316,7 @@ export function makeNative(t, m, manifestPath, dependencies = {}) {
     return validRunningMainPid(run('systemctl', ['--user', 'show', t.service, '-p', 'MainPID', '--value']));
   }
   async function closeForUpdate() {
+    if (m.dormantMoveRecovery) await preflight(m, t, adapter, { staged: true });
     if (t.kind === 'desktop-files') {
       save(desktopRequest, { port: Number(new URL(t.origin).port || 80), executable: t.desktopExecutable });
       save(desktopJournal, { phase: 'prepared', release: m.id });
@@ -330,6 +333,7 @@ export function makeNative(t, m, manifestPath, dependencies = {}) {
     }
   }
   const adapter = {
+    verifyDormantMove(current) { return verifyDormantMove(m, t, sourceRoot, run, current); },
     save(state) { save(locations.receipt, state); },
     listenerIdentity,
     async measureBackup(decision) {
