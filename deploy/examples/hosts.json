@@ -1,0 +1,50 @@
+{
+  "targets": {
+    "linux": {
+      "kind": "boot-service",
+      "platform": "linux-x64",
+      "baseDir": "/srv/t3-state",
+      "python": "/usr/bin/python3",
+      "origin": "http://127.0.0.1:3773",
+      "environmentId": "REPLACE-LIVE-ENVIRONMENT-ID",
+      "expectedVersion": "0.0.45+custom.41",
+      "expectedServerSha256": "REPLACE-64-LOWERCASE-HEX",
+      "expectedClientSha256": "REPLACE-64-LOWERCASE-HEX",
+      "service": "t3code.service",
+      "serviceDropIns": [],
+      "disks": [
+        { "root": "/srv", "class": "kingston", "reserveBytes": 107374182400, "growthBytes": 536870912 },
+        { "root": "/home/AGENT", "class": "other", "reserveBytes": 10737418240, "growthBytes": 536870912 }
+      ]
+    },
+    "windows": {
+      "kind": "desktop-files",
+      "platform": "win32-x64",
+      "baseDir": "C:/Private/T3/state",
+      "python": "C:/Python312/python.exe",
+      "origin": "http://127.0.0.1:3773",
+      "environmentId": "REPLACE-LIVE-ENVIRONMENT-ID",
+      "expectedVersion": "0.0.45+custom.41",
+      "expectedServerSha256": "REPLACE-64-LOWERCASE-HEX",
+      "expectedClientSha256": "REPLACE-64-LOWERCASE-HEX",
+      "desktopExecutable": "C:/Private/Programs/T3 Code/T3 Code (Alpha).exe",
+      "serverFile": "C:/Private/Programs/T3 Code/resources/server.asar",
+      "expectedFiles": {
+        "server.asar": "REPLACE-64-LOWERCASE-HEX",
+        "app.asar": "REPLACE-64-LOWERCASE-HEX"
+      },
+      "disks": [{ "root": "C:/", "class": "other", "reserveBytes": 10737418240, "growthBytes": 536870912 }]
+    },
+    "linked-linux": {
+      "remote": {
+        "ssh": "existing-pinned-alias",
+        "shell": "posix",
+        "node": "/usr/bin/node",
+        "entry": "/srv/private/t3-workflows/deploy/cli.mjs",
+        "config": "/srv/private/release/hosts.json",
+        "manifest": "/srv/private/release/release.json",
+        "target": "linux"
+      }
+    }
+  }
+}

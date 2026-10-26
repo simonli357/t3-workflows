@@ -1,0 +1,8 @@
+{
+  "serviceDropIns": [
+    {
+      "path": "/home/slsecret/.config/systemd/user/t3code.service.d/10-acer-network.conf",
+      "sha256": "e917ac129e48ca8b29ca6ae6cdffa94a2b029faf91934a277a4497e1979fccdd"
+    }
+  ]
+}
