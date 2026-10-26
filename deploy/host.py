@@ -213,6 +213,33 @@ def claude_transcript(settings_file, stable):
     return matches[0]
 
 
+def reconstruct_claude_binding(current, activity, transcript, sealed_hash):
+    """Recover an exact sealed cursor when a code-only install has no DB backup.
+
+    Native records only supply candidates. The original SHA-256 decides which
+    complete binding existed; the ordinary ancestry proof still checks progress.
+    """
+    cursor = current.get('resumeCursor')
+    turns = activity.get('turnIds')
+    if current.get('provider_name') != 'claudeAgent' or not isinstance(cursor, dict) or not isinstance(turns, list) or not turns: raise ValueError('cursor-reconstruction-provider')
+    ids = cursor.get('turnStartMessageIds')
+    if not isinstance(ids, list) or len(ids) < len(turns) or ids[-len(turns):] != turns or type(cursor.get('turnCount')) is not int or cursor['turnCount'] != len(ids): raise ValueError('cursor-reconstruction-turns')
+    native = cursor.get('resume')
+    if not isinstance(native, str) or str(uuid.UUID(native)) != native or cursor.get('threadId') != activity['id']: raise ValueError('cursor-native-identity')
+    path = Path(transcript).absolute()
+    if path.resolve(strict=True) != path or not path.is_file() or path.name != native + '.jsonl' or path.stat().st_size > 256 * 1024 * 1024: raise ValueError('cursor-transcript-path')
+    previous = {**current, 'resumeCursor': {**cursor, 'turnStartMessageIds': ids[:-len(turns)], 'turnCount': len(ids) - len(turns)}}
+    with path.open('rb') as stream:
+        for raw in stream:
+            if not raw.endswith(b'\n'): break
+            try: row = json.loads(raw)
+            except (ValueError, UnicodeError): raise ValueError('cursor-transcript-json')
+            if row.get('type') != 'assistant' or not isinstance(row.get('uuid'), str) or row.get('sessionId') != native or row.get('isSidechain') is not False: continue
+            previous['resumeCursor']['resumeSessionAt'] = row['uuid']
+            if hashed(previous) == sealed_hash: return previous
+    raise ValueError('cursor-baseline-not-reconstructed')
+
+
 def activity_reconciliation(deployment, checksum_seconds=30):
     """Prove new work against the sealed pre-activation database, never time alone.
 
@@ -285,13 +312,20 @@ def activity_reconciliation(deployment, checksum_seconds=30):
                 if current and hashed(current) != sealed_hash:
                     # Read only the required baseline row; its exact hash must
                     # match both sealed baselines, independently of file names.
-                    with closing(sqlite3.connect(file('before-migrations.sqlite').as_uri() + '?mode=ro', uri=True)) as backup_db:
-                        backup_db.row_factory = sqlite3.Row
-                        baseline = backup_db.execute('SELECT * FROM provider_session_runtime WHERE thread_id=?', (tid,)).fetchone()
-                    if not baseline: raise ValueError('cursor-baseline-missing')
-                    previous_binding = stable_binding(dict(baseline))
+                    transcript = claude_transcript(live_file.parent / 'settings.json', current)
+                    if (root / 'before-migrations.sqlite').exists():
+                        with closing(sqlite3.connect(file('before-migrations.sqlite').as_uri() + '?mode=ro', uri=True)) as backup_db:
+                            backup_db.row_factory = sqlite3.Row
+                            baseline = backup_db.execute('SELECT * FROM provider_session_runtime WHERE thread_id=?', (tid,)).fetchone()
+                        if not baseline: raise ValueError('cursor-baseline-missing')
+                        previous_binding = stable_binding(dict(baseline))
+                    else:
+                        # Only a journal-sealed watermark permits the code-only
+                        # path. Legacy receipts must retain their original backup.
+                        if backup_sha or 'activityBoundary' not in closed: raise ValueError('cursor-baseline-missing')
+                        previous_binding = reconstruct_claude_binding(current, entry, transcript, sealed_hash)
                     if hashed(previous_binding) != sealed_hash or dict(receipt['before']['bindings']).get(tid) != sealed_hash: raise ValueError('cursor-baseline-seal')
-                    binding_entries.append(prove_claude_cursor(previous_binding, current, entry, claude_transcript(live_file.parent / 'settings.json', current)))
+                    binding_entries.append(prove_claude_cursor(previous_binding, current, entry, transcript))
             except ValueError as error:
                 blocked.append({'id': tid, 'reason': str(error)})
     return {'kind': 'post-activation-work', 'manifestHash': receipt['manifestHash'], 'targetHash': receipt['targetHash'],
