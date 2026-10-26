@@ -5,7 +5,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { assertDormantProof, DORMANT_MOVE, readPeerProof } from './dormant-move.mjs';
+import { assertDormantProof, assertClosedMoveDestination, DORMANT_MOVE, readPeerProof } from './dormant-move.mjs';
+import { digest } from './core.mjs';
 const here = path.dirname(fileURLToPath(import.meta.url));
 const fixture = String.raw`
 import importlib.util,json,sqlite3,sys,hashlib
@@ -99,4 +100,22 @@ test('Windows retries an automatic move race but never accepts failed output', (
   assert.equal(calls, 1);
   assert.deepEqual(fs.readdirSync(tmp), []);
  } finally {fs.rmSync(tmp,{recursive:true});}
+});
+
+test('closed destination requires the exact pre-close proof and no new reservation', () => {
+ const m={id:'release',compatibility:{migrations:'none'},dormantMoveRecovery:{sha256:'a'.repeat(64)}};
+ const t={kind:'desktop-files',environmentId:'255c14ea-4fcc-4a51-b8bc-aa0821239b0a'};
+ const decision={source:{receiptSha256:'b'.repeat(64)}};
+ const seal={manifestHash:digest(JSON.stringify(m)),targetHash:digest(JSON.stringify(t)),proof:{decisionSha256:m.dormantMoveRecovery.sha256,sourceReceiptSha256:decision.source.receiptSha256}};
+ const journal={phase:'closed',release:'release',processes:{closed:true},dormantMoveProofSha256:digest(JSON.stringify(seal))};
+ const destination={role:'destination',moveId:DORMANT_MOVE,receipts:[],reservations:[],pending:[]};
+ const verify=(j=journal,s=seal,d=destination,c={blockingOperations:[]},target=t)=>assertClosedMoveDestination(m,target,decision,s,j,c,d);
+ assert.doesNotThrow(()=>verify());
+ assert.throws(()=>verify({...journal,phase:'prepared'}));
+ assert.throws(()=>verify({...journal,processes:{closed:false}}));
+ assert.throws(()=>verify({...journal,release:'other'}));
+ assert.throws(()=>verify(journal,{...seal,targetHash:'c'.repeat(64)}));
+ assert.throws(()=>verify(journal,seal,{...destination,reservations:['new']}));
+ assert.throws(()=>verify(journal,seal,destination,{blockingOperations:['move:new']}));
+ assert.throws(()=>verify(journal,seal,destination,{}, {...t,environmentId:'source'}));
 });

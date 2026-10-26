@@ -1,5 +1,5 @@
 import fs from 'node:fs';
-import { verifyDormantMove } from './dormant-move.mjs';
+import { verifyDormantMove, assertClosedMoveDestination } from './dormant-move.mjs';
 import path from 'node:path';
 import os from 'node:os';
 import { execFileSync } from 'node:child_process';
@@ -190,7 +190,19 @@ export function makeNative(t, m, manifestPath, dependencies = {}) {
   async function prepareDatabase(payload) {
     checkBackupRehearsal();
     const current = snapshot(); checkDatabase(m, current.database);
-    if (m.dormantMoveRecovery) adapter.verifyDormantMove(current);
+    if (m.dormantMoveRecovery) {
+      if (t.kind === 'desktop-files') {
+        // The source cannot reach this deliberately closed destination. Retain
+        // its full pre-close proof and inspect the local reservation boundary.
+        check(!desktopPort(), 'move-recovery', 'Destination must remain closed');
+        const decisionFile = fileAt(sourceRoot, m.dormantMoveRecovery.source);
+        check(sha(decisionFile) === m.dormantMoveRecovery.sha256, 'move-recovery', 'Move decision changed');
+        const seal = read(path.join(locations.deployment, 'dormant-before-close.json'));
+        const request = Buffer.from(JSON.stringify({ baseDir: t.baseDir, role: 'destination' })).toString('base64');
+        const destination = JSON.parse(run(t.python, ['-B', path.join(here, 'dormant-move.py'), request]));
+        assertClosedMoveDestination(m, t, read(decisionFile), seal, read(desktopJournal), current, destination);
+      } else adapter.verifyDormantMove(current);
+    }
     // The last running-host plan precedes shutdown writes. Reuse this closed,
     // consistent measurement for the ceiling, peak budget and backup request.
     if (m.compatibility.migrations === 'forward-only') check(current.database.logicalBytes <= m.compatibility.database.maxSourceBytes, 'migration', 'Closed database exceeds the rehearsed source-size ceiling; retain the closed install for review');
@@ -316,13 +328,18 @@ export function makeNative(t, m, manifestPath, dependencies = {}) {
     return validRunningMainPid(run('systemctl', ['--user', 'show', t.service, '-p', 'MainPID', '--value']));
   }
   async function closeForUpdate() {
-    if (m.dormantMoveRecovery) await preflight(m, t, adapter, { staged: true });
+    let moveSeal;
+    if (m.dormantMoveRecovery) {
+      const fresh = await preflight(m, t, adapter, { staged: true });
+      moveSeal = { manifestHash: digest(JSON.stringify(m)), targetHash: digest(JSON.stringify(t)), proof: fresh.live.dormantMoveRecovery };
+      save(path.join(locations.deployment, 'dormant-before-close.json'), moveSeal);
+    }
     if (t.kind === 'desktop-files') {
       save(desktopRequest, { port: Number(new URL(t.origin).port || 80), executable: t.desktopExecutable });
       save(desktopJournal, { phase: 'prepared', release: m.id });
       const closed = JSON.parse(run('powershell.exe', ['-NoProfile', '-NonInteractive', '-File', path.join(here, 'windows-close.ps1'), '-Request', desktopRequest], { timeout: 135000 }));
       check(closed.closed, 'recovery', 'Desktop closure was not verified');
-      save(desktopJournal, { phase: 'closed', release: m.id, processes: closed });
+      save(desktopJournal, { phase: 'closed', release: m.id, processes: closed, ...(moveSeal ? { dormantMoveProofSha256: digest(JSON.stringify(moveSeal)) } : {}) });
     } else {
       const journal = path.join(locations.deployment, 'service-activation.json');
       save(path.join(locations.deployment, 'previous-service-unit.json'), serviceConfiguration());
@@ -652,8 +669,29 @@ export function makeNative(t, m, manifestPath, dependencies = {}) {
     async resumeActivation() {
       const payload = m.payloads.find(p => p.platform === t.platform);
       if (t.kind === 'desktop-files') {
+        if (m.dormantMoveRecovery && fs.existsSync(desktopJournal) && read(desktopJournal).phase === 'closed' && !fs.existsSync(closedSnapshot) && desktopPort()) {
+          // A failed preparation may leave the unchanged old desktop reopened.
+          // Retain the original failure, recheck ordinary admission, then close
+          // again. Never use this path after any resource replacement/snapshot.
+          check(m.compatibility.migrations === 'none' && read(desktopJournal).processes?.closed === true, 'recovery', 'Only a verified code-only closure can be retried');
+          for (const [name, expected] of Object.entries(t.expectedFiles)) check(sha(fileAt(resourceRoot, name)) === expected, 'recovery', 'Reopened installation differs from the original');
+          const retained = path.join(locations.deployment, 'reopened-before-snapshot');
+          if (!fs.existsSync(retained)) {
+            fs.mkdirSync(retained);
+            for (const name of ['receipt.json', 'desktop-activation.json']) fs.copyFileSync(path.join(locations.deployment, name), path.join(retained, name));
+          }
+          await closeForUpdate();
+        }
         if (fs.existsSync(desktopJournal) && ['closed', 'replacing', 'installed'].includes(read(desktopJournal).phase)) {
-          if (!desktopPort()) await prepareDatabase(payload);
+          if (!desktopPort()) {
+            try { await prepareDatabase(payload); }
+            catch (error) {
+              // No migration or replacement has run: restore availability of
+              // the exact old application, never restore user data.
+              if (m.compatibility.migrations === 'none' && read(desktopJournal).phase === 'closed' && Object.entries(t.expectedFiles).every(([name, expected]) => sha(fileAt(resourceRoot, name)) === expected) && !desktopPort()) python('start-desktop', desktopRequest);
+              throw error;
+            }
+          }
         }
         finishDesktop(payload); return;
       }

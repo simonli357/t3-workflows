@@ -44,6 +44,13 @@ export function assertDormantProof(decision, source, destination) {
   check(destination.role === 'destination' && destination.moveId === DORMANT_MOVE && ['receipts', 'reservations', 'pending'].every(key => Array.isArray(destination[key]) && destination[key].length === 0), 'move-recovery', 'Destination reservation or another pending move appeared');
 }
 
+export function assertClosedMoveDestination(m, t, decision, seal, journal, current, destination) {
+  check(t.environmentId === TARGET && t.kind === 'desktop-files' && m.compatibility.migrations === 'none', 'move-recovery', 'Closed proof is only for the code-only Windows destination');
+  check(['closed', 'replacing', 'installed'].includes(journal.phase) && journal.release === m.id && journal.processes?.closed === true && journal.dormantMoveProofSha256 === digest(JSON.stringify(seal)), 'move-recovery', 'Verified closure must seal the running-host proof');
+  check(seal.manifestHash === digest(JSON.stringify(m)) && seal.targetHash === digest(JSON.stringify(t)) && seal.proof.decisionSha256 === m.dormantMoveRecovery.sha256 && seal.proof.sourceReceiptSha256 === decision.source.receiptSha256, 'move-recovery', 'Pre-close move proof differs from the exact release');
+  check(!(current.blockingOperations?.length) && destination.role === 'destination' && destination.moveId === DORMANT_MOVE && ['receipts', 'reservations', 'pending'].every(key => Array.isArray(destination[key]) && destination[key].length === 0), 'move-recovery', 'Closed destination has an ownership or move operation');
+}
+
 // Explicit opt-in is part of both pinned manifest and target. Every read is
 // authenticated by the existing SSH alias; no owner impersonation or DB writes.
 export function verifyDormantMove(m, t, sourceRoot, run, snapshot) {
