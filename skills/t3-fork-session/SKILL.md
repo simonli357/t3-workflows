@@ -105,6 +105,7 @@ pointing to that host's `node /path/to/t3-workflows/skills/t3-fork-session/scrip
 The helper adds `--local-only` to prevent recursion. SSH uses existing credentials;
 it never logs in interactively. A failed host remains unknown, not zero workers.
 
+Masters use the recommended computer unless the user named one.
 When the user named no computer, call `t3_recommend_computer` before choosing a fresh
 worker's host. It reads every connected computer (this one and each linked peer) at that
 moment and returns them ranked with reasons, plus the raw CPU, memory, work-disk and
@@ -499,6 +500,7 @@ appears, and reaches the agent when the master resumes. Report `done` only after
 the assigned work and its required background checks finish. Provider failures
 and requests for input notify automatically only after the window and if still
 relevant, labeled as runtime events rather than completed assignments.
+With `workerAutoSwitchOnUsageLimit` enabled (default), T3 automatically retries a managed worker’s usage-limited prompt once on a recommended account with quota headroom, preferring the same provider family; cross-family switches use conversation handoff and notify the master. Masters never switch automatically.
 Never autoapprove an input/approval request.
 
 After a server restart, inspect current state before resuming anything. Automatic
