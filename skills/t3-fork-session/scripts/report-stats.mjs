@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { existsSync, realpathSync } from "node:fs";
 // Counts worker reports per master and worker, to spot assignments sliced too thin.
 // Reads this machine's T3 database read-only; it changes nothing.
 import { homedir } from "node:os";
@@ -51,6 +52,6 @@ async function main() {
   } finally { db.close(); }
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
+if (process.argv[1] && existsSync(process.argv[1]) && import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href) {
   main().catch((error) => { console.error(error.message); process.exitCode = 1; });
 }
