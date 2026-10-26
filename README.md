@@ -31,9 +31,26 @@ hard cap of **15**. Intermediate assistant updates require `--include-intermedia
 metadata. Older pages and long-message continuations are explicit. This read path
 requires a server advertising `boundedSessionHistory`.
 
+## Release this computer
+
+Run `t3w release` (default `--ref origin/main`) on the computer being updated.
+It builds the pushed fork commit in a Workenv job with Node 26.8.2, rehearses
+pending migrations on a temporary `VACUUM INTO` copy, then activates and checks
+the server. Existing native sidecars are retained; changed dependency versions
+require native packaging first. `--dry-run` prints the steps without changing
+the installation. `--help` lists path overrides and the migration/health limits
+(defaults: 60 seconds, 120 seconds, 2-second stalls).
+
+Linux activation runs outside the agents slice. On Windows, run
+`node "$HOME\t3-workflows\bin\t3w.mjs" release` in desktop PowerShell or an
+Interactive scheduled task. Failed health checks roll back only while the live
+migration ledger and schema are unchanged; otherwise the server stays stopped.
+Unfinished existing deployment claims block the command. An interrupted release
+leaves its job path in `runtime/t3w-deploy/release-in-progress.json` for inspection.
+
 ## Weekly upstream review
 
-Stay on `custom-stable`. Fetch official stable, main and nightly changes weekly as review material. The report recommends individual changes to take, defer or skip; the user chooses which ones to integrate. Backport selected changes and test them against our custom behavior and existing phone/desktop clients before deployment. Reviewing nightly changes does not authorize switching the installed build to nightly. Stable-base upgrades are separate, explicit decisions.
+Release from the fork’s `main`. Fetch official stable, main and nightly changes weekly as review material. The report recommends individual changes to take, defer or skip; the user chooses which ones to integrate. Backport selected changes and test them against our custom behavior and existing phone/desktop clients before deployment. Reviewing nightly changes does not authorize switching the installed build to nightly. Stable-base upgrades are separate, explicit decisions.
 
 `t3w check-upstream` fetches upstream and collects release notes, new commits, patch-equivalent changes, customization metadata, and the live local environment version. `--review` runs the configured Codex reviewer read-only and writes `~/.local/state/t3-workflows/upstream/latest.md`, then notifies the desktop. It never merges or deploys. The review cursor advances only after a successful report. A failed run keeps its evidence and retries through systemd; a lock prevents overlapping reviews. Inspect the PID in a stale lock before removing it after an interrupted run.
 
