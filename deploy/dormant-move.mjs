@@ -34,7 +34,7 @@ export function verifyDormantMove(m, t, sourceRoot, run, snapshot) {
   const script = path.join(here, 'dormant-move.py'), scriptSha = sha(script);
   const request = (baseDir, role) => Buffer.from(JSON.stringify({ baseDir, role })).toString('base64');
   const local = JSON.parse(run(t.python, ['-B', script, request(t.baseDir, isSource ? 'source' : 'destination')], { timeout: 60000 }));
-  const bootstrap = "import hashlib,runpy,sys; p=sys.argv.pop(1); h=sys.argv.pop(1); assert hashlib.sha256(open(p,'rb').read()).hexdigest()==h; runpy.run_path(p,run_name='__main__')";
+  const bootstrap = 'import hashlib,pathlib,runpy,sys; p=sys.argv.pop(1); h=sys.argv.pop(1); assert hashlib.sha256(pathlib.Path(p).read_bytes()).hexdigest()==h; runpy.run_path(p,run_name=__name__)';
   const args = [peer.python, '-B', '-c', bootstrap, peer.script, scriptSha, request(peer.baseDir, isSource ? 'destination' : 'source')];
   check(args.every(a => typeof a === 'string' && a && !/[\x00-\x1f]/.test(a)), 'move-recovery', 'Invalid peer proof command');
   const command = peer.shell === 'posix' ? args.map(quote).join(' ') : 'powershell.exe -NoProfile -NonInteractive -EncodedCommand ' + Buffer.from('& ' + args.map(psQuote).join(' ') + '; exit $LASTEXITCODE', 'utf16le').toString('base64');
