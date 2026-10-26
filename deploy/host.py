@@ -13,6 +13,9 @@ import sys
 import time
 from contextlib import closing
 import uuid
+import xml.etree.ElementTree as ET
+
+BACKGROUND_REVIEW = json.loads(Path(__file__).with_name('background-task-review.json').read_text())
 
 
 def hashed(value):
@@ -128,7 +131,7 @@ def prove_claude_cursor(previous, current, activity, transcript):
     native = a.get('resume')
     if not isinstance(native, str) or str(uuid.UUID(native)) != native or a.get('threadId') != activity['id']: raise ValueError('cursor-native-identity')
     old, new = a.get('turnStartMessageIds'), b.get('turnStartMessageIds')
-    turns = activity['turnIds']
+    turns = activity.get('nativeTurnIds', activity['turnIds'])
     if not isinstance(old, list) or not isinstance(new, list) or not turns or new != old + turns or len(set(new)) != len(new) or any(not isinstance(t, str) or not t for t in new): raise ValueError('cursor-turn-prefix')
     if type(a.get('turnCount')) is not int or type(b.get('turnCount')) is not int or a['turnCount'] != len(old) or b['turnCount'] != len(new): raise ValueError('cursor-turn-count')
     path = Path(transcript).absolute()
@@ -184,13 +187,16 @@ def prove_claude_cursor(previous, current, activity, transcript):
     # requested turns. This also proves progress when the saved anchor is old.
     previous_turn = old_anchor
     for turn in turns:
-        node(turn, 'user'); ancestry(turn, previous_turn); previous_turn = turn
+        background = activity.get('backgroundTask', {})
+        node(turn, 'assistant' if turn == background.get('nativeStartId') else 'user')
+        ancestry(turn, previous_turn); previous_turn = turn
     changed = anchor != old_anchor
     if changed:
         chain = ancestry(anchor, old_anchor)
         if any(t not in chain for t in turns): raise ValueError('cursor-anchor-missing-requested-turn')
     return {'id': activity['id'], 'fromSha256': hashed(previous), 'toSha256': hashed(current),
-            'kind': 'requested-claude-cursor-progress', 'turnIds': turns,
+            'kind': 'requested-claude-cursor-progress', 'turnIds': activity['turnIds'],
+            **({'backgroundTask': activity['backgroundTask']} if activity.get('backgroundTask') else {}),
             'requestSequences': activity['requestSequences'], 'anchorChanged': changed,
             'anchorDescendsFromPrevious': True if changed else None, 'compactionBoundaryIds': sorted(compactions),
             'transcript': str(path), 'nativeRecords': list(evidence.values())}
@@ -220,7 +226,7 @@ def reconstruct_claude_binding(current, activity, transcript, sealed_hash):
     complete binding existed; the ordinary ancestry proof still checks progress.
     """
     cursor = current.get('resumeCursor')
-    turns = activity.get('turnIds')
+    turns = activity.get('nativeTurnIds', activity.get('turnIds'))
     if current.get('provider_name') != 'claudeAgent' or not isinstance(cursor, dict) or not isinstance(turns, list) or not turns: raise ValueError('cursor-reconstruction-provider')
     ids = cursor.get('turnStartMessageIds')
     if not isinstance(ids, list) or len(ids) < len(turns) or ids[-len(turns):] != turns or type(cursor.get('turnCount')) is not int or cursor['turnCount'] != len(ids): raise ValueError('cursor-reconstruction-turns')
@@ -238,6 +244,75 @@ def reconstruct_claude_binding(current, activity, transcript, sealed_hash):
             previous['resumeCursor']['resumeSessionAt'] = row['uuid']
             if hashed(previous) == sealed_hash: return previous
     raise ValueError('cursor-baseline-not-reconstructed')
+
+
+def prove_reviewed_background(db, deployment, tid, turns, boundary, current, transcript, sealed_hash):
+    """One reviewed native task completion, anchored to its accepted root request.
+
+    This is not a client prompt or native goal. Both immutable native records and
+    durable provider receipts must match, before ordinary cursor proof can run.
+    """
+    p = BACKGROUND_REVIEW
+    if deployment != p['deploymentId'] or tid != p['threadId'] or sealed_hash != p['sealedBindingSha256']: raise ValueError('background-review-scope')
+    if [t['turn_id'] for t in turns if not t['pending_message_id']] != [p['turnId']]: raise ValueError('background-extra-unrequested-turn')
+    cursor = current.get('resumeCursor') or {}
+    if current.get('provider_name') != 'claudeAgent' or current.get('provider_instance_id') != p['instance'] or cursor.get('resume') != p['nativeId'] or cursor.get('threadId') != tid: raise ValueError('background-native-profile')
+    index = next(i for i, t in enumerate(turns) if t['turn_id'] == p['turnId'])
+    if not index or turns[index - 1]['turn_id'] != p['rootTurnId']: raise ValueError('background-root-turn')
+    root = prove_activity(db, tid, turns[:index], boundary, through_sequence=p['startupSequence'] - 1, allow_delivered_jobs=True)
+    events = {}
+    for sequence, expected in p['events'].items():
+        row = db.execute('SELECT * FROM orchestration_events WHERE sequence=?', (int(sequence),)).fetchone()
+        actor = 'server' if int(sequence) == p['checkpointSequence'] else 'provider'
+        if not row or hashed(dict(row)) != expected or row['stream_id'] != tid or row['actor_kind'] != actor or int(sequence) <= boundary: raise ValueError('background-durable-event')
+        receipt = db.execute('SELECT * FROM orchestration_command_receipts WHERE command_id=?', (row['command_id'],)).fetchone()
+        if not receipt or receipt['aggregate_kind'] != 'thread' or receipt['aggregate_id'] != tid or receipt['status'] != 'accepted' or receipt['error'] or receipt['result_sequence'] < int(sequence): raise ValueError('background-command-receipt')
+        events[int(sequence)] = json.loads(row['payload_json'])
+    tasks = [event['activity'] for event in events.values() if event.get('activity', {}).get('kind') in ('task.updated', 'task.completed')]
+    if {task['kind'] for task in tasks} != {'task.updated', 'task.completed'} or len(tasks) != 2 or any(task.get('payload', {}).get('taskId') != p['taskId'] or task['payload'].get('toolUseId') != p['toolUseId'] or task['payload'].get('status') != 'completed' for task in tasks): raise ValueError('background-task-completion')
+    for key, status, turn in [('startupSequence', 'running', None), ('runningSequence', 'running', p['turnId']), ('readySequence', 'ready', None)]:
+        session = events[p[key]].get('session', {})
+        if session.get('status') != status or session.get('activeTurnId') != turn or session.get('lastError') or session.get('providerName') != 'claudeAgent' or session.get('providerInstanceId') != p['instance']: raise ValueError('background-session-evidence')
+    checkpoint = events[p['checkpointSequence']]
+    if checkpoint.get('turnId') != p['turnId'] or checkpoint.get('status') != 'ready' or checkpoint.get('files') != []: raise ValueError('background-checkpoint')
+    path = Path(transcript).absolute()
+    if path.resolve(strict=True) != path or not path.is_file() or path.name != p['nativeId'] + '.jsonl' or path.stat().st_size > 256 * 1024 * 1024: raise ValueError('background-transcript-path')
+    nodes = {}
+    with path.open('rb') as stream:
+        for raw in stream:
+            if not raw.endswith(b'\n'): break
+            row = json.loads(raw); uid = row.get('uuid')
+            if uid:
+                fingerprint = hashlib.sha256(raw).hexdigest()
+                if uid in nodes and nodes[uid][1] != fingerprint: raise ValueError('background-replaced-record')
+                nodes[uid] = (row, fingerprint)
+    def node(uid):
+        pair = nodes.get(uid)
+        if not pair: raise ValueError('background-native-record')
+        row, fingerprint = pair
+        if row.get('sessionId') != p['nativeId'] or row.get('cwd') != current['runtimePayload']['cwd'] or row.get('isSidechain') is not False: raise ValueError('background-native-ancestry')
+        if uid in p['nativeRecords'] and p['nativeRecords'][uid] != fingerprint: raise ValueError('background-native-seal')
+        return row
+    for uid in p['nativeRecords']: node(uid)
+    def ancestry(start, end):
+        chain = []
+        while start != end:
+            if not start or start in chain: raise ValueError('background-not-descendant')
+            chain.append(start); start = node(start).get('parentUuid')
+        node(end); return chain
+    chain = ancestry(p['nativeStartId'], p['rootTurnId'])
+    if any(p[key] not in chain for key in ('launchId', 'resultId', 'notificationId')): raise ValueError('background-task-ancestry')
+    notice = node(p['notificationId'])
+    if notice.get('type') != 'user': raise ValueError('background-notification')
+    xml = ET.fromstring(notice['message']['content'])
+    if xml.tag != 'task-notification' or xml.findtext('task-id') != p['taskId'] or xml.findtext('tool-use-id') != p['toolUseId'] or xml.findtext('status') != 'completed': raise ValueError('background-notification')
+    launch = [x for x in node(p['launchId'])['message']['content'] if x.get('type') == 'tool_use' and x.get('id') == p['toolUseId']]
+    results = [x for x in node(p['resultId'])['message']['content'] if x.get('type') == 'tool_result' and x.get('tool_use_id') == p['toolUseId']]
+    if len(launch) != 1 or launch[0].get('name') != 'Bash' or launch[0].get('input', {}).get('run_in_background') is not True or len(results) != 1 or p['taskId'] not in str(results[0].get('content')) or results[0].get('is_error'): raise ValueError('background-task-launch')
+    first = node(p['nativeStartId']); mapping = events[p['mappingSequence']].get('activity', {})
+    calls = [x.get('id') for x in first.get('message', {}).get('content', []) if x.get('type') == 'tool_use']
+    if first.get('type') != 'assistant' or mapping.get('turnId') != p['turnId'] or mapping.get('payload', {}).get('toolCallId') not in calls: raise ValueError('background-projected-turn')
+    return {'kind': 'provider-native-background-task', 'turnId': p['turnId'], 'nativeStartId': p['nativeStartId'], 'sequence': p['runningSequence'], 'startupSequence': p['startupSequence'], 'taskId': p['taskId'], 'toolUseId': p['toolUseId'], 'notificationId': p['notificationId'], 'rootRequestSequences': root['requestSequences'], 'reviewSha256': hashed(p), 'reviewedFailureSha256': p['originalFailureSha256']}
 
 
 def activity_reconciliation(deployment, checksum_seconds=30):
@@ -304,11 +379,19 @@ def activity_reconciliation(deployment, checksum_seconds=30):
                 continue
             try:
                 if (previous['turn_id'] if previous else None) != old['lastTurnId']: raise ValueError('closed-turn-differs')
-                entry = {'id': tid, 'fromLastTurnId': old['lastTurnId'], **prove_activity(db, tid, turns, boundary, allow_delivered_jobs=True)}
-                entries.append(entry)
                 row = db.execute('SELECT * FROM provider_session_runtime WHERE thread_id=?', (tid,)).fetchone()
                 current = stable_binding(dict(row)) if row else None
                 sealed_hash = dict(closed['bindings']).get(tid)
+                background = None
+                if any(not t['pending_message_id'] for t in turns) and tid == BACKGROUND_REVIEW['threadId']:
+                    if not current: raise ValueError('background-binding-missing')
+                    transcript = claude_transcript(live_file.parent / 'settings.json', current)
+                    background = prove_reviewed_background(db, root.name, tid, turns, boundary, current, transcript, sealed_hash)
+                entry = {'id': tid, 'fromLastTurnId': old['lastTurnId'], **prove_activity(db, tid, turns, boundary, allow_delivered_jobs=True, reviewed_background=background)}
+                if background:
+                    entry['backgroundTask'] = background
+                    entry['nativeTurnIds'] = [background['nativeStartId'] if turn == background['turnId'] else turn for turn in entry['turnIds']]
+                entries.append(entry)
                 if current and hashed(current) != sealed_hash:
                     # Read only the required baseline row; its exact hash must
                     # match both sealed baselines, independently of file names.
@@ -381,7 +464,7 @@ def prove_idle_settlement(db, tid, old, closed, boundary):
     return {'id': tid, 'kind': 'idle-settlement', 'fromLastTurnId': old['lastTurnId'], 'toLastTurnId': old['lastTurnId'], 'turnIds': [], 'settlement': {'settledAt': payload['settledAt'], 'sequence': settled['sequence'], 'stoppedSequence': stopped['sequence']}}
 
 
-def prove_activity(db, tid, turns, boundary, reviewed_delivery_jobs=(), through_sequence=None, reviewed_native_turns=None, reviewed_startups=(), allow_delivered_jobs=False):
+def prove_activity(db, tid, turns, boundary, reviewed_delivery_jobs=(), through_sequence=None, reviewed_native_turns=None, reviewed_startups=(), allow_delivered_jobs=False, reviewed_background=None):
     """Require an accepted client command, its user message and every new turn.
 
     Provider recovery has no such new request. Worker report job.turn_id belongs
@@ -397,6 +480,13 @@ def prove_activity(db, tid, turns, boundary, reviewed_delivery_jobs=(), through_
         mid, turn_id = turn['pending_message_id'], turn['turn_id']
         if not turn_id or turn_id in turn_ids: raise ValueError('unrequested-turn')
         native = (reviewed_native_turns or {}).get(turn_id) if not mid else None
+        background = reviewed_background if not mid and reviewed_background and reviewed_background['turnId'] == turn_id else None
+        if background:
+            matches = [e for e in events if e['sequence'] == background['sequence'] and e['event_type'] == 'thread.session-set' and e['payload'].get('session', {}).get('activeTurnId') == turn_id]
+            if len(matches) != 1 or not accepted(matches[0]) or matches[0]['actor_kind'] != 'provider' or matches[0]['payload'].get('threadId') != tid: raise ValueError('background-provider-evidence')
+            if not requests or background['sequence'] <= requests[-1]['sequence']: raise ValueError('background-turn-order')
+            requests.append({**matches[0], 'nativeBackground': True}); turn_ids.append(turn_id)
+            continue
         if native:
             matches = [e for e in events if e['sequence'] == native['sequence'] and e['event_type'] == 'thread.session-set' and e['payload'].get('session', {}).get('activeTurnId') == turn_id]
             if len(matches) != 1 or not accepted(matches[0]) or matches[0]['actor_kind'] != 'provider' or matches[0]['payload'].get('threadId') != tid: raise ValueError('native-goal-provider-evidence')
@@ -431,7 +521,8 @@ def prove_activity(db, tid, turns, boundary, reviewed_delivery_jobs=(), through_
         if s.get('status') not in ('starting', 'running') and not s.get('activeTurnId'): continue
         if e['payload'].get('threadId') != tid or e['actor_kind'] not in ('server', 'provider') or not accepted(e): raise ValueError('provider-session-evidence')
         if e['sequence'] in reviewed_startups and s.get('status') == 'starting' and not s.get('activeTurnId'): continue
-        preceding = [i for i, r in enumerate(requests) if (r['sequence'] <= e['sequence'] if r.get('nativeGoal') else r['sequence'] < e['sequence'])]
+        if reviewed_background and e['sequence'] == reviewed_background['startupSequence'] and s.get('status') == 'running' and not s.get('activeTurnId'): continue
+        preceding = [i for i, r in enumerate(requests) if (r['sequence'] <= e['sequence'] if r.get('nativeGoal') or r.get('nativeBackground') else r['sequence'] < e['sequence'])]
         if not preceding: raise ValueError('unrequested-session-start')
         index = preceding[-1]
         if s.get('activeTurnId'):
@@ -439,7 +530,8 @@ def prove_activity(db, tid, turns, boundary, reviewed_delivery_jobs=(), through_
             seen_running.add(index)
         elif index in seen_running: raise ValueError('unrequested-session-restart')
     if seen_running != set(range(len(turns))): raise ValueError('provider-turn-not-observed')
-    entry = {'toLastTurnId': turn_ids[-1], 'turnIds': turn_ids, 'requestSequences': [r['sequence'] for r in requests if not r.get('nativeGoal')], 'nativeGoalSequences': [r['sequence'] for r in requests if r.get('nativeGoal')], 'unsettled': unsettled, 'deliveredJobs': deliveries}
+    entry = {'toLastTurnId': turn_ids[-1], 'turnIds': turn_ids, 'requestSequences': [r['sequence'] for r in requests if not r.get('nativeGoal') and not r.get('nativeBackground')], 'nativeGoalSequences': [r['sequence'] for r in requests if r.get('nativeGoal')], 'unsettled': unsettled, 'deliveredJobs': deliveries}
+    if reviewed_background: entry['nativeBackgroundSequences'] = [r['sequence'] for r in requests if r.get('nativeBackground')]
     # A completed assignment may be explicitly settled again. Require its last
     # lifecycle event and accepted completion/idle receipts in sequence order;
     # neither a timestamp alone nor an old settlement authorizes this change.
