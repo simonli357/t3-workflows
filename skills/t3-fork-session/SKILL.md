@@ -15,9 +15,20 @@ Run `t3w profile` (or `t3w profile --project NAME_OR_PATH`) to read the project
 profile, account mappings, and fixed model efforts. Read
 [conventions.md](references/conventions.md) before choosing the worker's
 name, source, and model. Naming is an agent convention, not a script restriction.
-Honor explicit account/model choices and applicable choices already made in the
-conversation. When either is unspecified, inspect capacity using the tools below
-and let the agent select the missing value. No script selects or ranks profiles.
+**Every worker creation is scored and recommended.** The master always scores the
+assignment (difficulty and stakes, each 0-10 with a reason): `request.assessment` for
+`selection: "automatic"`, otherwise top-level `assessment` on `t3_start_allocated_assignment`
+and `t3_worker_spawn` (`t3w spawn|fork --mcp-plan --difficulty N --difficulty-reason TEXT
+--stakes N --stakes-reason TEXT`). The server always runs all three recommendations,
+model/effort from the difficulty/stakes table, account from allocation and computer
+advice, and records them next to the actual choice. Pin only what the user specified;
+the rest comes from the recommendation. User choices are recorded overrides: a pinned
+choice that differs from its recommendation needs `overrides.model`, `overrides.account`
+or `overrides.computer` with the reason, such as "user specified ES Opus xhigh". A fork
+keeps its source's account and model; the server records that continuity reason itself.
+Recommendations are advice, never an admission veto; unavailable advice is recorded and
+the start proceeds.
+
 Retries and follow-ups retain the current profile. Use the explicit worker
 control below to change it within the user's account/model constraints.
 
@@ -68,7 +79,7 @@ rates/API prices into subscription percentages. Session age includes idle time;
 non-tool wall time is not measured model compute. Use these measurements as
 evidence for the agent's decision, not an automatic account ranking.
 
-For automatic account/model selection, read [selection-policy.md](references/selection-policy.md).
+For account/model selection, read [selection-policy.md](references/selection-policy.md).
 It defines the Claude preference, Codex's below-70%-weekly exception, explicit
 banked-reset priorities, and sustainable pacing. The agent applies this policy;
 the scripts supply evidence and never rank or route work.
@@ -119,18 +130,22 @@ never silently substitute a provider on retry.
    the worker reporting instruction below in the task sent to the worker.
 3. Generate a destination UUID once with `node -p 'crypto.randomUUID()'`. Keep
    that ID for the entire operation, including retries.
-4. Inside T3, generate the validated MCP input with the helper below, then
+4. Inside T3, generate the validated MCP input with the helper below, including
+   the assessment flags, then
    pass its JSON unchanged to `t3_worker_spawn` on T3's MCP server. The helper's
    `--mcp-plan` only resolves and validates; it does not create a session or send work.
    Use a task file for multiline text; `--task-file -` also accepts stdin.
    Never interpolate task text into shell code. Delete temporary task files.
-5. Report the worker name, provider, model, fixed effort, thread ID, and observed
-   assignment state. `queued` or `submitted` means accepted, not completed work.
+5. Report the worker name, provider, model, effort, recommended-vs-chosen
+   summary, thread ID, and observed assignment state. `queued` or `submitted` means accepted, not completed work.
 
 ```bash
 t3w spawn --project /absolute/path/to/project \
   --provider SL --model sol --name 'c344_camera_sol' \
-  --thread-id <destination-uuid> --task-file /absolute/path/to/task.txt --mcp-plan
+  --thread-id <destination-uuid> --task-file /absolute/path/to/task.txt --mcp-plan \
+  --difficulty 5 --difficulty-reason 'Two interacting services' \
+  --stakes 4 --stakes-reason 'Reversible; tests catch regressions' \
+  --override-model 'user specified SL Sol'
 ```
 
 For a fork, replace `spawn` with `fork` and optionally add `--source-thread UUID`.

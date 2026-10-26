@@ -21,7 +21,10 @@ ambiguous matches. Ordinary worker forks require the source account and project.
 handoffs can change the destination profile after copying the source. Preserve source modes, working directory, and branch. Never assign work
 to a base or modify its context while forking. Reuse an owned worker for corrections.
 
-Model efforts default to the configured fixed profile. An explicit user choice
-or authorized profile change can override effort with an advertised value.
-Selections are checked against the live catalog. The tools do not rank accounts or choose models. Preserve supported
-inherited options, explicit constraints, and the chosen profile on retries.
+Every worker creation, fresh or fork, follows the [selection policy](selection-policy.md):
+the master scores the task, the server always recommends model/effort, account and
+computer, and user choices are recorded overrides. Effort comes from the
+difficulty/stakes table unless the user specified it; explicit options stay exact. A
+fork keeps its source's profile. Selections are checked against the live catalog.
+Preserve supported inherited options, explicit constraints, and the chosen profile
+on retries.

@@ -1,7 +1,21 @@
 # Account and model selection
 
-Apply this policy when the user leaves the account or model unspecified. Choose
-using the evidence; no script ranks accounts or routes sessions.
+**Every worker creation is scored and recommended.** The master always scores the
+assignment (difficulty and stakes, each 0-10 with a reason): `request.assessment` for
+`selection: "automatic"`, otherwise top-level `assessment` on `t3_start_allocated_assignment`
+and `t3_worker_spawn` (`t3w spawn|fork --mcp-plan --difficulty N --difficulty-reason TEXT
+--stakes N --stakes-reason TEXT`). The server always runs all three recommendations,
+model/effort from the difficulty/stakes table, account from allocation and computer
+advice, and records them next to the actual choice. Pin only what the user specified;
+the rest comes from the recommendation. User choices are recorded overrides: a pinned
+choice that differs from its recommendation needs `overrides.model`, `overrides.account`
+or `overrides.computer` with the reason, such as "user specified ES Opus xhigh". A fork
+keeps its source's account and model; the server records that continuity reason itself.
+Recommendations are advice, never an admission veto; unavailable advice is recorded and
+the start proceeds.
+
+The priorities below guide the master's own judgment when reviewing the recorded
+recommendation or choosing what the user left open.
 
 ## Priorities
 
@@ -76,7 +90,7 @@ reasoning needs and the available evidence. Use stronger profiles for difficult
 reasoning or consequential reviews; a smaller suitable profile can handle
 bounded routine work. Do not weaken a user-specified model or sacrifice task
 requirements merely to consume a preferred account's quota. Use the configured
-fixed effort for the chosen profile unless the user explicitly overrides it.
+table's effort for the chosen profile unless the user explicitly overrides it.
 
 Briefly state account/model/effort, the priority applied, remaining windows/reset
 times, and relevant load or uncertainty. Recheck active load before each added
