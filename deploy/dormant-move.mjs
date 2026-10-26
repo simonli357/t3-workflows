@@ -1,10 +1,29 @@
 import path from 'node:path';
+import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { check, read, sha, digest, fileAt } from './core.mjs';
 
 export const DORMANT_MOVE = '678bac1d-7caf-45cc-a6fb-a69039215c46';
 const SOURCE = 'b263cba7-18b9-49fe-9650-cf7b073d2c95', TARGET = '255c14ea-4fcc-4a51-b8bc-aa0821239b0a';
 const here = path.dirname(fileURLToPath(import.meta.url));
+// Win32 OpenSSH can hang on Node's pipe handles even after delivering output.
+// Regular files avoid that handle mode; require exit success before reading any
+// bytes. The bounded files live beside the owned release and are never reused.
+export function readPeerProof(run, args, sourceRoot, platform = process.platform) {
+  if (platform !== 'win32') return JSON.parse(run('ssh', args, { timeout: 75000 }));
+  const directory = fs.mkdtempSync(path.join(sourceRoot, '.dormant-peer-'));
+  const output = path.join(directory, 'stdout'), error = path.join(directory, 'stderr');
+  const out = fs.openSync(output, 'wx', 0o600), err = fs.openSync(error, 'wx', 0o600);
+  try {
+    run('ssh', args, { timeout: 75000, stdio: ['ignore', out, err] });
+    check(fs.statSync(output).size <= 1024 * 1024, 'move-recovery', 'Peer proof exceeds its bounded size');
+    return JSON.parse(fs.readFileSync(output, 'utf8'));
+  } finally {
+    fs.closeSync(out); fs.closeSync(err);
+    fs.rmSync(directory, { recursive: true });
+  }
+}
+
 const quote = value => "'" + value.replaceAll("'", "'\\''") + "'";
 const psQuote = value => "'" + value.replaceAll("'", "''") + "'";
 
@@ -38,7 +57,7 @@ export function verifyDormantMove(m, t, sourceRoot, run, snapshot) {
   const args = [peer.python, '-B', '-c', bootstrap, peer.script, scriptSha, request(peer.baseDir, isSource ? 'destination' : 'source')];
   check(args.every(a => typeof a === 'string' && a && !/[\x00-\x1f]/.test(a)), 'move-recovery', 'Invalid peer proof command');
   const command = peer.shell === 'posix' ? args.map(quote).join(' ') : 'powershell.exe -NoProfile -NonInteractive -EncodedCommand ' + Buffer.from('& ' + args.map(psQuote).join(' ') + '; exit $LASTEXITCODE', 'utf16le').toString('base64');
-  const remote = JSON.parse(run('ssh', ['-o', 'BatchMode=yes', '-o', 'StrictHostKeyChecking=yes', '-o', 'ConnectTimeout=10', '--', peer.ssh, command], { timeout: 75000 }));
+  const remote = readPeerProof(run, ['-n', '-T', '-o', 'BatchMode=yes', '-o', 'StrictHostKeyChecking=yes', '-o', 'ConnectTimeout=10', '--', peer.ssh, command], sourceRoot);
   const source = isSource ? local : remote, destination = isSource ? remote : local;
   assertDormantProof(decision, source, destination);
   // Retain the exact original copying/error receipt in the decision; updated_at

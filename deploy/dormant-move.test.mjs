@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { assertDormantProof, DORMANT_MOVE } from './dormant-move.mjs';
+import { assertDormantProof, DORMANT_MOVE, readPeerProof } from './dormant-move.mjs';
 const here = path.dirname(fileURLToPath(import.meta.url));
 const fixture = String.raw`
 import importlib.util,json,sqlite3,sys,hashlib
@@ -55,3 +55,13 @@ test('dormant pre-reservation source retains exact failure, capture and native i
  assert.throws(()=>assertDormantProof(decision,source,{...destination,reservations:['new']}));
 });
 for(const which of ['prepared','committing','active-copy','wrong-error','other-move','active-native','pending-turn','changed-file','ownership','destination-reservation','destination-receipt']) test('refuses '+which,()=>assert.throws(()=>probe(which)));
+
+test('Windows peer proof uses fresh regular files and requires successful completion', () => {
+ const tmp = fs.mkdtempSync(path.join(process.env.TMPDIR ?? os.tmpdir(), 'peer-proof-'));
+ try {
+  const command = exit => (_exe, _args, options) => execFileSync(process.execPath, ['-e', `process.stdout.write(JSON.stringify({proof:true}));process.exit(${exit})`], options);
+  assert.deepEqual(readPeerProof(command(0), [], tmp, 'win32'), {proof:true});
+  assert.throws(()=>readPeerProof(command(1), [], tmp, 'win32'));
+  assert.deepEqual(fs.readdirSync(tmp), []);
+ } finally {fs.rmSync(tmp,{recursive:true});}
+});
