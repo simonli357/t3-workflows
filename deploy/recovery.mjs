@@ -5,14 +5,11 @@ import path from 'node:path';
 import { check, read, sha, digest, preservation, checkDatabase } from './core.mjs';
 import { reviewReopened, REOPENED_PHASES } from './reopened-review.mjs';
 import { reviewedForwardBoundaries } from './forward-review.mjs';
-import { reviewedWindowsBoundaries } from './windows-profile-review.mjs';
-import { validateWindowsCatalogReview } from './windows-catalog-review.mjs';
-import { PREPARED_KIND, inspectPrepared, reviewPrepared, assertPreparedTerminal } from './prepared-review.mjs';
 
 const hash = value => typeof value === 'string' && /^[a-f0-9]{64}$/.test(value);
 // Which retained receipt phases a terminal of each kind may supersede.
 export const reconcilablePhases = kind => kind === 'reopened-before-replacement' ? REOPENED_PHASES : ['recovery-required'];
-const SUPERSEDABLE = { 'reopened-before-replacement': REOPENED_PHASES, 'installed-forward-repair': ['recovery-required'], 'measured-adoption': ['measured'], [PREPARED_KIND]: ['recovery-required'] };
+const SUPERSEDABLE = { 'reopened-before-replacement': REOPENED_PHASES, 'installed-forward-repair': ['recovery-required'], 'measured-adoption': ['measured'] };
 function regular(file) {
   check(fs.realpathSync(file) === path.resolve(file) && fs.lstatSync(file).isFile() && !fs.lstatSync(file).isSymbolicLink(), 'recovery', 'Recovery evidence must be a canonical regular file');
 }
@@ -26,12 +23,11 @@ export function readSuperseded(locations, state) {
     const pinned = path.join(locations.deployment, name); regular(pinned);
     check(sha(pinned) === expected, 'recovery', 'Original recovery evidence changed: ' + name);
   }
-  if (terminal.kind === PREPARED_KIND) assertPreparedTerminal(locations.deployment, terminal);
-  else check(Object.keys(terminal.evidence ?? {}).includes('receipt.json') && Object.keys(terminal.evidence).includes('closed-snapshot.json'), 'recovery', 'Missing original boundary evidence');
+  check(Object.keys(terminal.evidence ?? {}).includes('receipt.json') && Object.keys(terminal.evidence).includes('closed-snapshot.json'), 'recovery', 'Missing original boundary evidence');
   return { ...state, phase: 'superseded', supersession: terminal };
 }
 export function inspectRecovery(root, decision, successor, target, ownRequest) {
-  check(decision.schema === 1 && ['reopened-before-replacement', 'installed-forward-repair', PREPARED_KIND].includes(decision.kind) && /^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$/.test(decision.id) && decision.id !== successor.id, 'recovery', 'Explicit distinct predecessor required');
+  check(decision.schema === 1 && ['reopened-before-replacement', 'installed-forward-repair'].includes(decision.kind) && /^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$/.test(decision.id) && decision.id !== successor.id, 'recovery', 'Explicit distinct predecessor required');
   check(decision.successor?.id === successor.id && decision.successor.manifestHash === digest(JSON.stringify(successor)) && decision.successor.targetHash === digest(JSON.stringify(target)), 'recovery', 'Recovery decision pins a different successor');
   const deployment = path.join(root, decision.id), receiptFile = path.join(deployment, 'receipt.json');
   regular(receiptFile); const receipt = read(receiptFile);
@@ -39,7 +35,6 @@ export function inspectRecovery(root, decision, successor, target, ownRequest) {
   const claim = read(path.join(root, 'claim.json'));
   check(claim.id === receipt.id && claim.manifestHash === receipt.manifestHash, 'recovery', 'Predecessor no longer owns the deployment claim');
   check(!fs.existsSync(path.join(deployment, 'superseded.json')), 'recovery', 'Supersession already exists; reread durable status');
-  if (decision.kind === PREPARED_KIND) return inspectPrepared(deployment, decision, receipt, successor, target);
   const journalName = target.kind === 'boot-service' ? 'service-activation.json' : 'desktop-activation.json';
   for (const name of ['receipt.json', journalName, 'closed-snapshot.json']) check(hash(decision.evidence?.[name]), 'recovery', 'Exact original failure and boundary pins are required');
   for (const [name, expected] of Object.entries(decision.evidence)) {
@@ -60,15 +55,11 @@ export function inspectRecovery(root, decision, successor, target, ownRequest) {
 }
 export function reviewRecovery(context, live, installed, reconciliations = {}) {
   const { decision, receipt, request, journal, closed } = context;
-  let forward, windows;
-  check(!decision.windowsCatalogReview || (decision.kind === 'reopened-before-replacement' && decision.windowsProfileReview), 'recovery', 'Catalog reconciliation requires the exact Windows profile-bound decision');
+  let forward;
   check(live.environmentId === request.target.environmentId && live.portOwnerVerified === true && !live.conflictingUpdate && !(live.snapshot.blockingOperations?.length), 'recovery', 'Live owner or native transition is uncertain');
-  if (decision.kind === PREPARED_KIND) return reviewPrepared(context, live, installed, reconciliations.listener);
   if (decision.kind === 'reopened-before-replacement') {
     check(journal.phase === 'closed', 'recovery', 'Reopened review is only before replacement');
-    if (decision.windowsProfileReview) windows = reviewedWindowsBoundaries(context, live, reconciliations.windowsProfile);
-    if (decision.windowsCatalogReview || (decision.windowsProfileReview && decision.reviewedCurrentFiles?.some(e => e.id === 'file:connection-catalog.json'))) validateWindowsCatalogReview(context, live, reconciliations.windowsCatalog);
-    reviewReopened({ ...context, receipt: windows ? { ...receipt, before: windows.before } : receipt, installed, live, reviewedCurrentFiles: decision.reviewedCurrentFiles ?? [] });
+    reviewReopened({ ...context, installed, live, reviewedCurrentFiles: decision.reviewedCurrentFiles ?? [] });
   } else {
     check(!(decision.reviewedCurrentFiles?.length), 'recovery', 'Current-file reconciliation is scoped to the reviewed reopened Windows boundary');
     check(request.target.kind === 'boot-service' && journal.phase === 'started' && live.version === request.manifest.version, 'recovery', 'Forward repair requires the exact installed failed release');
@@ -85,17 +76,19 @@ export function reviewRecovery(context, live, installed, reconciliations = {}) {
     check(proof.ok, 'recovery', 'Original native/history preservation must pass before forward repair: ' + JSON.stringify(proof));
   }
   const sessions = new Map(live.snapshot.sessions.map(s => [s.id, s]));
-  for (const old of (windows?.before ?? receipt.before).sessions) check(sessions.has(old.id) && ['nativeId', 'instance', 'provider', 'profile'].every(k => sessions.get(old.id)[k] === old[k]), 'recovery', 'Original native identity changed');
+  // The only reviewed exception: a session with an exactly proven identity transition must show its proven NEW identity, never any other.
+  const moved = new Map((forward?.transitions ?? []).map(t => [t.id, t.to]));
+  for (const old of receipt.before.sessions) check(sessions.has(old.id) && ['nativeId', 'instance', 'provider', 'profile'].every(k => sessions.get(old.id)[k] === (moved.get(old.id) ?? old)[k]), 'recovery', 'Original native identity changed');
   // Exact authorized current-setting decisions apply to both retained old
   // boundaries. This is explicit reconciliation, not historical equality.
   const closedRoutes = (closed.routes ?? []).map(([id, value]) => { const reviewed = (decision.reviewedCurrentFiles ?? []).find(x => x.id === id && x.fromSha256 === value); return [id, reviewed ? reviewed.toSha256 : value]; });
   // Nothing was replaced in a reopened-before-replacement attempt, so a worker job that failed or was cancelled in the
   // reopened old app is ordinary activity (reviewReopened already ignores job states). The successor captures its own
   // fresh baseline and still detects update-caused job failures against that. Immutable job rows stay protected.
-  const closedBoundary = decision.kind === 'reopened-before-replacement' ? { ...(windows?.closed ?? closed), jobStates: [] } : (forward?.closed ?? closed);
+  const closedBoundary = decision.kind === 'reopened-before-replacement' ? { ...closed, jobStates: [] } : (forward?.closed ?? closed);
   const boundary = preservation({ ...closedBoundary, routes: closedRoutes, sessions: [] }, live.snapshot);
   check(boundary.ok, 'recovery', 'Closed native/history boundary differs: ' + JSON.stringify(boundary));
-  return { schema: 1, phase: 'superseded', kind: decision.kind, id: receipt.id, manifestHash: receipt.manifestHash, targetHash: receipt.targetHash, originalReceiptSha256: decision.evidence['receipt.json'], evidence: decision.evidence, successor: decision.successor, currentSnapshotSha256: digest(JSON.stringify(live.snapshot)), reviewedCurrentFiles: decision.reviewedCurrentFiles ?? [], ...(forward ? { forwardReview: { decision: decision.forwardReview, proof: reconciliations.forward, historicalSettingsEquality: false } } : {}), ...(windows ? { windowsProfileReview: { decision: decision.windowsProfileReview, proof: reconciliations.windowsProfile, historicalProfileEquality: false } } : {}), ...(decision.windowsCatalogReview ? { windowsCatalogReview: { decision: decision.windowsCatalogReview, proof: reconciliations.windowsCatalog } } : {}), originalFailureAccepted: false, supersededAt: new Date().toISOString() };
+  return { schema: 1, phase: 'superseded', kind: decision.kind, id: receipt.id, manifestHash: receipt.manifestHash, targetHash: receipt.targetHash, originalReceiptSha256: decision.evidence['receipt.json'], evidence: decision.evidence, successor: decision.successor, currentSnapshotSha256: digest(JSON.stringify(live.snapshot)), reviewedCurrentFiles: decision.reviewedCurrentFiles ?? [], ...(forward ? { forwardReview: { decision: decision.forwardReview, proof: reconciliations.forward, historicalSettingsEquality: false, ...(forward.transitions.length ? { identityTransitions: forward.transitions } : {}) } } : {}), originalFailureAccepted: false, supersededAt: new Date().toISOString() };
 }
 
 export function assertMeasurementPlan(m) {

@@ -124,7 +124,7 @@ export function budget(disks, requirements) {
     check(!['tmpfs', 'ramfs', 'usb', 'removable'].includes(d.type), 'disk', 'RAM and removable storage are not deployment staging');
     check(Number.isSafeInteger(d.freeBytes) && d.freeBytes >= 0, 'disk', 'Invalid free bytes');
     const floor = d.class === 'kingston' ? 100 * 2 ** 30 : d.class === 'wd' ? 60 * 2 ** 30 : 0;
-    check(['kingston', 'wd', 'other'].includes(d.class) && Number.isSafeInteger(d.reserveBytes) && d.reserveBytes > 0 && d.reserveBytes >= floor && Number.isSafeInteger(d.growthBytes) && d.growthBytes >= 0, 'disk', 'Disk reserve or concurrent growth budget is invalid');
+    check(Number.isSafeInteger(d.reserveBytes) && d.reserveBytes >= floor && Number.isSafeInteger(d.growthBytes) && d.growthBytes >= 0, 'disk', 'Disk reserve or concurrent growth budget is invalid');
     const old = grouped.get(d.device) ?? { device: d.device, freeBytes: d.freeBytes, reserveBytes: 0, growthBytes: 0, extraBytes: 0 };
     old.freeBytes = Math.min(old.freeBytes, d.freeBytes); old.reserveBytes = Math.max(old.reserveBytes, d.reserveBytes); old.growthBytes = Math.max(old.growthBytes, d.growthBytes); old.extraBytes += r.bytes; grouped.set(d.device, old);
   }
@@ -140,7 +140,7 @@ export function checkSessions(snapshot) {
     if (eligible(s)) check(s.nativeId && s.profile && s.instance && s.bindingStatus === 'running' && s.provider === 'codex', 'unsupported', 'Running sessions require verified Codex promptless native continuation; other adapters must finish first');
   }
 }
-export function preservation(before, after, reconciledBindings = [], reconciledActivity = [], reconciledRoutes = []) {
+export function preservation(before, after, reconciledBindings = [], reconciledActivity = []) {
   const failures = [], pending = [], failed = [];
   const oldModels = new Map(before.bindingModels ?? []), newModels = new Map(after.bindingModels ?? []);
   for (const key of ['projects', 'profiles', 'bindings', 'history', 'historyContent', 'ownership', 'jobs', 'routes']) {
@@ -151,8 +151,7 @@ export function preservation(before, after, reconciledBindings = [], reconciledA
       // verified reconstruction evidence; never replace their original hashes.
       const normalized = oldModels.get(id)?.sha256 && newModels.get(id)?.normalized === true && oldModels.get(id).sha256 === newModels.get(id).sha256;
       const reconciled = reconciledBindings.some(entry => entry.id === id && entry.fromSha256 === hash && entry.toSha256 === next.get(id));
-      const acceptedCatalog = key === 'routes' && id === 'file:connection-catalog.json' && reconciledRoutes.some(entry => entry.id === id && entry.acceptance === 'reviewed-current-catalog' && (entry.historicalEquality === 'unproven' || entry.historicalEquality === false) && entry.fromSha256 === hash && entry.toSha256 === next.get(id));
-      if (!acceptedCatalog && (key !== 'bindings' || (!normalized && !reconciled))) failures.push(`${key}:${id}`);
+      if (key !== 'bindings' || (!normalized && !reconciled)) failures.push(`${key}:${id}`);
     }
   }
   for (const old of before.sessions) {
@@ -164,13 +163,12 @@ export function preservation(before, after, reconciledBindings = [], reconciledA
     } else if (!next || next.lastTurnId !== old.lastTurnId || Boolean(next.activeTurnId) !== Boolean(old.activeTurnId) || ['archivedAt', 'deletedAt', 'snoozedUntil', 'settledAt'].some(key => next[key] !== old[key]) || (['running', 'starting'].includes(next.status) && next.status !== old.status)) {
       // Only the read-only host reconstruction can supply these exact turn
       // receipts. It proves every new turn, not merely the most recent one.
-      const activity = next && reconciledActivity.find(entry => entry.id === old.id && entry.fromLastTurnId === old.lastTurnId && entry.toLastTurnId === next.lastTurnId && (entry.turnIds?.includes(next.lastTurnId) || (entry.kind === 'idle-settlement' && entry.turnIds?.length === 0)));
+      const activity = next && reconciledActivity.find(entry => entry.id === old.id && entry.fromLastTurnId === old.lastTurnId && entry.toLastTurnId === next.lastTurnId && entry.turnIds?.includes(next.lastTurnId));
       const settled = next && activity?.settlement?.settledAt === next.settledAt && Boolean(next.settledAt) && !next.activeTurnId && next.lastTurnState === 'completed' && (!old.settledAt || activity.unsettled === true);
       const lifecycle = next && ['archivedAt', 'deletedAt', 'snoozedUntil'].every(key => next[key] === old[key]) && (next.settledAt === old.settledAt || (old.settledAt && next.settledAt === null && activity?.unsettled === true) || settled);
-      const idleSettlement = activity?.kind === 'idle-settlement' && settled && !old.settledAt && !old.activeTurnId && ['ready', 'stopped'].includes(old.status) && next.status === 'stopped' && next.lastTurnId === old.lastTurnId && old.lastTurnState === 'completed' && Boolean(old.lastTurnCompletedAt) && next.lastTurnCompletedAt === old.lastTurnCompletedAt;
-      const turnMatches = idleSettlement || (next && next.lastTurnId !== old.lastTurnId && (next.activeTurnId
+      const turnMatches = next && next.lastTurnId !== old.lastTurnId && (next.activeTurnId
         ? next.activeTurnId === next.lastTurnId && next.status === 'running' && next.lastTurnState === 'running'
-        : next.lastTurnState === 'completed' && ['ready', 'stopped'].includes(next.status)));
+        : next.lastTurnState === 'completed' && ['ready', 'stopped'].includes(next.status));
       if (!activity || !lifecycle || !turnMatches) failures.push(`inactive-session-changed:${old.id}`);
       else if (['nativeId', 'instance', 'provider', 'profile'].some(key => !old[key] || next[key] !== old[key])) failures.push(`native-profile:${old.id}`);
       else if (next.status === 'error' || next.lastError) failed.push(old.id);
@@ -203,10 +201,7 @@ export async function preflight(m, t, adapter, { staged = false, after = false }
   check(!live.conflictingUpdate, 'conflict', 'Another update is pending');
   if (!after) {
     checkSessions(live.snapshot);
-    if (m.dormantMoveRecovery) {
-      check(typeof adapter.verifyDormantMove === 'function', 'move-recovery', 'Native recovery proof is unavailable');
-      live.dormantMoveRecovery = await adapter.verifyDormantMove(live.snapshot);
-    } else check(!(live.snapshot.blockingOperations?.length), 'unsupported', 'An ownership transaction or native move is in flight; let its supported reconciliation finish before deployment');
+    check(!(live.snapshot.blockingOperations?.length), 'unsupported', 'An ownership transaction or native move is in flight; let its supported reconciliation finish before deployment');
     check(live.snapshot.sessions.filter(eligible).every(s => s.continueOnShutdown === true), 'unsupported', 'Every active session needs its existing effective continueThreadsAfterServerUpdate setting enabled');
   }
   if (!after) await adapter.validatePayload(payload, staged);

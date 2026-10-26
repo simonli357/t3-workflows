@@ -1,5 +1,4 @@
 import fs from 'node:fs';
-import { verifyDormantMove } from './dormant-move.mjs';
 import path from 'node:path';
 import os from 'node:os';
 import { execFileSync } from 'node:child_process';
@@ -8,10 +7,7 @@ import { check, checkDatabase, DeployError, read, save, sha, digest, fileAt, ver
 import { inspectServiceDropIns } from './service-config.mjs';
 import { assertUnactivated, readDeployment } from './cancel.mjs';
 import { inspectRecovery, reviewRecovery, assertMeasurementPlan, assertAdoption, reconcilablePhases } from './recovery.mjs';
-import { PREPARED_KIND } from './prepared-review.mjs';
 import { FORWARD_POLICY } from './forward-review.mjs';
-import { WINDOWS_PROFILE_POLICY } from './windows-profile-review.mjs';
-import { readWindowsCatalogProof } from './windows-catalog-review.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 export function validRunningMainPid(value) {
@@ -43,41 +39,6 @@ export function readActivityReconciliation(python, deployment, checksumSeconds =
   const timeout = (checksumSeconds + 30) * 1000;
   check(remainingRunnerMs() >= timeout, 'deadline', 'Insufficient runner lifetime for activity evidence');
   return JSON.parse(runCommand(python, [path.join(here, 'host.py'), 'activity-reconciliation', JSON.stringify({ deployment, checksumSeconds })], { timeout }));
-}
-// Exact primary-reviewed current-state decisions. These are not a claim of
-// historical equality, nor permission to accept other files or later catalogs.
-export function readCatalogReconciliation(deployment, manifestHash, targetHash, before, after) {
-  const input = name => {
-    const file = path.join(deployment, name);
-    check(fs.realpathSync(file) === path.resolve(file) && !fs.lstatSync(file).isSymbolicLink(), 'catalog-acceptance', 'Noncanonical catalog evidence');
-    return file;
-  };
-  check(remainingRunnerMs() >= 10000, 'deadline', 'Insufficient runner lifetime for catalog evidence');
-  const decisionFile = input('catalog-current-state-acceptance.json'), functionalFile = input('catalog-current-functional-proof.json');
-  const reviewedPairs = [
-    ['96c77b9ffba0ff914cd97c7d5360f11f073ca30fa582565a6173d9353d4edd4c', '6873066fa623a52b8e22864224c408221727073d907b778a20aff8fb224bbcf8'],
-    ['69cf916624707a94ef063289e9c62757cf40353460428563b92e4125a3249f24', 'a99a5ffd24727257a4ced903611b82f0be4990ade4f58e8ad9e31512fc41e01b'],
-    ['e5b3e8bd11512a1297653f85bc63b0f00e7b24bb8ee278d4ea2f3ae46741797b', 'c3ca3d967e57ff2c1b7347f8a0994013ccd19d083bfb9a004f5e0a72520bf86e'],
-  ];
-  check(reviewedPairs.some(([decisionSha, functionalSha]) => sha(decisionFile) === decisionSha && sha(functionalFile) === functionalSha), 'catalog-acceptance', 'Catalog decision or functional evidence differs from primary review');
-  const decision = read(decisionFile), functional = read(functionalFile), receipt = read(input('receipt.json'));
-  const originalFile = input('catalog-original-recovery-receipt.json'), closedFile = input('closed-snapshot.json');
-  check(sha(originalFile) === decision.originalRecoveryReceiptSha256 && sha(closedFile) === decision.closedSnapshotSha256, 'catalog-acceptance', 'Original catalog boundary evidence changed');
-  const original = read(originalFile), closed = read(closedFile), journal = read(input('desktop-activation.json'));
-  check(decision.decision === 'accept-current-intended-catalog' && decision.deploymentId === path.basename(deployment) && receipt.id === decision.deploymentId && original.id === receipt.id && ['verifying', 'recovery-required', 'accepted'].includes(receipt.phase) && original.phase === 'recovery-required', 'catalog-acceptance', 'Catalog decision deployment differs');
-  check(manifestHash === decision.manifestDigest && targetHash === decision.targetDigest && receipt.manifestHash === manifestHash && receipt.targetHash === targetHash && original.manifestHash === manifestHash && original.targetHash === targetHash, 'catalog-acceptance', 'Catalog decision manifest or target differs');
-  check(JSON.stringify(before) === JSON.stringify(original.before) && JSON.stringify(receipt.before) === JSON.stringify(original.before) && journal.phase === 'started' && journal.closedSnapshotSha256 === decision.closedSnapshotSha256, 'catalog-acceptance', 'Original snapshot or started activation differs');
-  const id = 'file:connection-catalog.json';
-  check(new Map(before.routes).get(id) === decision.originalCatalogCiphertextSha256 && new Map(closed.routes).get(id) === decision.originalCatalogCiphertextSha256 && new Map(after.routes).get(id) === decision.currentCatalogCiphertextSha256, 'catalog-acceptance', 'Catalog transition differs from primary review');
-  // Exact current ciphertext binds the current catalog to the pinned decrypted
-  // semantic/function proof. A refresh or semantic change needs fresh review.
-  const catalog = path.resolve(deployment, '../../..', 'userdata/connection-catalog.json');
-  check(fs.realpathSync(catalog) === catalog && !fs.lstatSync(catalog).isSymbolicLink() && sha(catalog) === decision.currentCatalogCiphertextSha256, 'catalog-acceptance', 'Current catalog changed after snapshot');
-  check(functional.ciphertextSha256 === decision.currentCatalogCiphertextSha256 && functional.semanticSha256 === decision.currentSemanticSha256 && functional.durableFieldsSha256 === decision.currentDurableFieldsSha256, 'catalog-acceptance', 'Catalog semantic evidence differs');
-  const historicalEquality = decision.historicalEquality ?? 'unproven';
-  check(historicalEquality === 'unproven' || historicalEquality === false, 'catalog-acceptance', 'Cannot claim historical equality');
-  return { kind: 'reviewed-current-catalog', historicalEquality, decisionSha256: sha(decisionFile), functionalProofSha256: sha(functionalFile), originalReceiptSha256: decision.originalRecoveryReceiptSha256, closedSnapshotSha256: decision.closedSnapshotSha256, currentSemanticSha256: decision.currentSemanticSha256,
-    entries: [{ id, fromSha256: decision.originalCatalogCiphertextSha256, toSha256: decision.currentCatalogCiphertextSha256, acceptance: 'reviewed-current-catalog', historicalEquality }] };
 }
 const cleanEnv = () => Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith('T3') && !key.startsWith('VITE_') && key !== 'ELECTRON_RUN_AS_NODE'));
 // Match the reviewed archive installer's protocol-3 unit. Refuse custom units:
@@ -190,7 +151,6 @@ export function makeNative(t, m, manifestPath, dependencies = {}) {
   async function prepareDatabase(payload) {
     checkBackupRehearsal();
     const current = snapshot(); checkDatabase(m, current.database);
-    if (m.dormantMoveRecovery) adapter.verifyDormantMove(current);
     // The last running-host plan precedes shutdown writes. Reuse this closed,
     // consistent measurement for the ceiling, peak budget and backup request.
     if (m.compatibility.migrations === 'forward-only') check(current.database.logicalBytes <= m.compatibility.database.maxSourceBytes, 'migration', 'Closed database exceeds the rehearsed source-size ceiling; retain the closed install for review');
@@ -243,16 +203,6 @@ export function makeNative(t, m, manifestPath, dependencies = {}) {
       return JSON.parse(run('powershell.exe', ['-NoProfile', '-NonInteractive', '-File', path.join(here, 'windows-inspect.ps1'), '-Request', request]));
     } finally { fs.rmSync(request, { force: true }); fs.rmdirSync(dir); }
   }
-  // Read-only identity (pid and OS start time) of the desktop listener and its parent; closes and changes nothing.
-  function listenerIdentity() {
-    check(t.kind === 'desktop-files', 'unsupported', 'Listener identity is read for the Windows desktop only');
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 't3w-listener-'));
-    const request = path.join(dir, 'request.json');
-    try {
-      save(request, { port: Number(new URL(t.origin).port || 80), executable: t.desktopExecutable });
-      return JSON.parse(run('powershell.exe', ['-NoProfile', '-NonInteractive', '-File', path.join(here, 'windows-listener.ps1'), '-Request', request]));
-    } finally { fs.rmSync(request, { force: true }); fs.rmdirSync(dir); }
-  }
   function linuxOwner() {
     const main = Number(run('systemctl', ['--user', 'show', t.service, '-p', 'MainPID', '--value']).trim());
     check(main > 0, 'install', 'Actual boot service is not running');
@@ -281,8 +231,7 @@ export function makeNative(t, m, manifestPath, dependencies = {}) {
     return disks.map(d => {
       const policy = t.disks.filter(x => { const r = path.relative(path.resolve(x.root), path.resolve(d.path)); return !r.startsWith('..') && !path.isAbsolute(r); }).sort((a, b) => b.root.length - a.root.length)[0];
       check(policy, 'disk', 'No reserve policy covers a deployment filesystem');
-      // Generic reserves are explicit host policy, independent of hardware brand.
-      const detected = policy.class === 'other' ? 'other' : /kingston/i.test(d.model) ? 'kingston' : /western|\bwd/i.test(d.model) ? 'wd' : policy.class;
+      const detected = /kingston/i.test(d.model) ? 'kingston' : /western|\bwd/i.test(d.model) ? 'wd' : policy.class;
       check(detected === policy.class, 'disk', 'Backing disk model contradicts reserve policy');
       return { ...d, class: detected, reserveBytes: policy.reserveBytes, growthBytes: policy.growthBytes };
     });
@@ -316,7 +265,6 @@ export function makeNative(t, m, manifestPath, dependencies = {}) {
     return validRunningMainPid(run('systemctl', ['--user', 'show', t.service, '-p', 'MainPID', '--value']));
   }
   async function closeForUpdate() {
-    if (m.dormantMoveRecovery) await preflight(m, t, adapter, { staged: true });
     if (t.kind === 'desktop-files') {
       save(desktopRequest, { port: Number(new URL(t.origin).port || 80), executable: t.desktopExecutable });
       save(desktopJournal, { phase: 'prepared', release: m.id });
@@ -333,9 +281,7 @@ export function makeNative(t, m, manifestPath, dependencies = {}) {
     }
   }
   const adapter = {
-    verifyDormantMove(current) { return verifyDormantMove(m, t, sourceRoot, run, current); },
     save(state) { save(locations.receipt, state); },
-    listenerIdentity,
     async measureBackup(decision) {
       assertMeasurementPlan(m);
       const recordFile = path.join(locations.deployment, 'measurement.json');
@@ -477,14 +423,6 @@ export function makeNative(t, m, manifestPath, dependencies = {}) {
       const installed = {};
       if (t.kind === 'desktop-files') for (const rel of Object.keys(context.request.target.expectedFiles)) installed[rel] = sha(fileAt(resourceRoot, rel));
       const reconciliations = {};
-      if (decision.kind === PREPARED_KIND) reconciliations.listener = listenerIdentity();
-      if (decision.windowsProfileReview) {
-        check(decision.kind === 'reopened-before-replacement' && decision.windowsProfileReview.policySha256 === digest(JSON.stringify(WINDOWS_PROFILE_POLICY)), 'recovery', 'Unreviewed Windows effort policy');
-        const input = { deployment: context.deployment, policy: WINDOWS_PROFILE_POLICY, review: decision.windowsProfileReview, currentSnapshotSha256: digest(JSON.stringify(result.live.snapshot)) };
-        check(remainingRunnerMs() >= 30000, 'deadline', 'Insufficient lifetime for Windows effort proof');
-        reconciliations.windowsProfile = JSON.parse(run(t.python, [path.join(here, 'windows-profile-proof.py'), JSON.stringify(input)], { timeout: 30000 }));
-      }
-      if (decision.windowsCatalogReview) reconciliations.windowsCatalog = readWindowsCatalogProof(t.baseDir, decision.windowsCatalogReview, run);
       if (decision.kind === 'installed-forward-repair') {
         const original = context.deployment;
         const bindingFile = path.join(original, 'binding-reconciliation.json');
@@ -694,24 +632,22 @@ export function makeNative(t, m, manifestPath, dependencies = {}) {
           }
           const reconciliationFile = path.join(locations.deployment, 'binding-reconciliation.json');
           const bindingReconciliation = fs.existsSync(reconciliationFile) ? python('binding-reconciliation-check', locations.deployment) : undefined;
-          const catalogFile = path.join(locations.deployment, 'catalog-current-state-acceptance.json');
-          const catalogReconciliation = fs.existsSync(catalogFile) ? readCatalogReconciliation(locations.deployment, digest(JSON.stringify(m)), digest(JSON.stringify(t)), before, result.live.snapshot) : undefined;
-          let recovery = preservation(before, result.live.snapshot, bindingReconciliation?.entries, [], catalogReconciliation?.entries);
+          let recovery = preservation(before, result.live.snapshot, bindingReconciliation?.entries);
           // An idle baseline is not a lifetime ban on new work. Reconstruct
           // explicit post-activation requests from the sealed backup and live
           // event log; missing/ambiguous evidence keeps the original failure.
           let activityReconciliation;
-          if (recovery.failures.some(f => f.startsWith('inactive-session-changed:') || f.startsWith('bindings:'))) {
+          if (recovery.failures.some(f => f.startsWith('inactive-session-changed:'))) {
             try { activityReconciliation = readActivityReconciliation(t.python, locations.deployment, checksumSeconds, run); }
             catch { activityReconciliation = { entries: [], blocked: [{ reason: 'activity-evidence-unavailable' }] }; }
           }
-          if (activityReconciliation) recovery = preservation(before, result.live.snapshot, [...(bindingReconciliation?.entries ?? []), ...(activityReconciliation.bindingEntries ?? [])], activityReconciliation.entries, catalogReconciliation?.entries);
+          if (activityReconciliation) recovery = preservation(before, result.live.snapshot, bindingReconciliation?.entries, activityReconciliation.entries);
           if (fs.existsSync(closedSnapshot)) {
             const closed = read(closedSnapshot); closed.sessions = [];
-            const closedProof = preservation(closed, result.live.snapshot, activityReconciliation?.bindingEntries, [], catalogReconciliation?.entries);
+            const closedProof = preservation(closed, result.live.snapshot);
             recovery.failures.push(...closedProof.failures); recovery.ok &&= closedProof.ok;
           }
-          last = { ...recovery, ...(catalogReconciliation ? { catalogReconciliation } : {}), ...(bindingReconciliation ? { bindingReconciliation } : {}), ...(activityReconciliation ? { activityReconciliation } : {}), environmentId: result.live.environmentId, version: result.live.version, clientSha256: result.live.clientSha256 };
+          last = { ...recovery, ...(bindingReconciliation ? { bindingReconciliation } : {}), ...(activityReconciliation ? { activityReconciliation } : {}), environmentId: result.live.environmentId, version: result.live.version, clientSha256: result.live.clientSha256 };
           if (recovery.ok || recovery.failed.length || recovery.failures.length) return last;
         } catch (error) { last = { ok: false, code: error.code ?? 'verification', reason: error instanceof DeployError ? error.message : 'Replacement verification pending' }; }
         await new Promise(resolve => setTimeout(resolve, 1000));
