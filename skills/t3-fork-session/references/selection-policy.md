@@ -6,6 +6,23 @@ Pacing, borrowing, reserves, missing/stale quota estimates and historical reject
 projections are not admission vetoes. Never retune scores or policies just to make
 an account eligible. Actual provider failures remain failures.
 
+**Every worker creation is scored and recommended.** The master always scores the
+assignment (difficulty and stakes, each 0-10 with a reason): `request.assessment` for
+`selection: "automatic"`, otherwise top-level `assessment` on `t3_start_allocated_assignment`
+and `t3_worker_spawn` (`t3w spawn|fork --mcp-plan --difficulty N --difficulty-reason TEXT
+--stakes N --stakes-reason TEXT`). The server always runs all three recommendations,
+model/effort from the difficulty/stakes table, account from allocation and computer
+advice, and records them next to the actual choice. Pin only what the user specified;
+the rest comes from the recommendation. User choices are recorded overrides: a pinned
+choice that differs from its recommendation needs `overrides.model`, `overrides.account`
+or `overrides.computer` with the reason, such as "user specified ES Opus xhigh". A fork
+keeps its source's account and model; the server records that continuity reason itself.
+Recommendations are advice, never an admission veto; unavailable advice is recorded and
+the start proceeds.
+
+The priorities below guide the master's own judgment when reviewing the recorded
+recommendation or choosing what the user left open.
+
 ## Ordinary managed workflow
 
 1. Choose the execution computer and project within the user's constraints and its
@@ -94,7 +111,8 @@ editable cells. Older saved tables retain every pair's choice when read. The
 table recommends exact model/effort profiles. Do not copy its mapping into
 prompts, alter scores for quota, or assume model/effort is a linear cost scale.
 Only configured capability alternatives may fill unsupported automatic profiles;
-quota pressure never selects a weaker model or another computer.
+quota pressure never selects a weaker model or another computer. Use the configured
+table's effort for the chosen profile unless the user explicitly overrides it.
 
 An existing native session is not a fresh allocation. Forks, moves, resumes,
 follow-ups and orchestration handoff retain their dedicated continuity/ownership

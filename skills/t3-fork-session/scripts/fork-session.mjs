@@ -272,9 +272,26 @@ export function usageLimit(thread, now = new Date()) {
     reportedAt: hit.createdAt, active: resetsAt > now };
 }
 
-export function workerInput(plan, task) {
+export function workerInput(plan, task, recommendation = {}) {
   return { ...(plan.selfFork ? { selfFork: true } : {}), ...(plan.environment ? { environment: plan.environment } : {}), ...(plan.sourceThreadId ? { sourceThreadId: plan.sourceThreadId } : { projectId: plan.projectId }), threadId: plan.threadId,
-    title: plan.name, modelSelection: plan.modelSelection, prompt: task };
+    title: plan.name, modelSelection: plan.modelSelection, prompt: task, ...recommendation };
+}
+
+const scoreFlags = ["difficulty", "difficulty-reason", "stakes", "stakes-reason"];
+/** The master's assessment and per-dimension override reasons that every t3_worker_spawn requires. */
+export function recommendationInput(values) {
+  const missing = scoreFlags.filter((flag) => !values[flag]?.trim());
+  requireValue(!missing.length, `--mcp-plan needs the master's assessment: add ${missing.map((flag) => `--${flag}`).join(", ")} (scores are integers 0-10).`);
+  const score = (flag) => {
+    const value = Number(values[flag]);
+    requireValue(Number.isInteger(value) && value >= 0 && value <= 10, `--${flag} must be an integer from 0 to 10.`);
+    return value;
+  };
+  const overrides = Object.fromEntries(["model", "account", "computer"].flatMap((key) => values[`override-${key}`]?.trim() ? [[key, values[`override-${key}`].trim()]] : []));
+  return {
+    assessment: { difficulty: score("difficulty"), difficultyReason: values["difficulty-reason"].trim(), stakes: score("stakes"), stakesReason: values["stakes-reason"].trim() },
+    ...(Object.keys(overrides).length ? { overrides } : {}),
+  };
 }
 
 async function main() {
@@ -289,10 +306,13 @@ async function main() {
     project: { type: "string" }, server: { type: "string" }, home: { type: "string" }, cli: { type: "string" },
     timeout: { type: "string", default: "180" }, wait: { type: "string", default: "started" },
     "mcp-plan": { type: "boolean", default: false }, environment: { type: "string" },
+    difficulty: { type: "string" }, "difficulty-reason": { type: "string" },
+    stakes: { type: "string" }, "stakes-reason": { type: "string" },
+    "override-model": { type: "string" }, "override-account": { type: "string" }, "override-computer": { type: "string" },
     "dry-run": { type: "boolean", default: false }, help: { type: "boolean", short: "h" },
   } });
   if (values.help) {
-    console.log("--handoff-plan emits input for t3_orchestrator_handoff, allowing a busy self source and a different destination account. --effort overrides the profile default only when advertised.\nUsage: node fork-session.mjs --provider XL|ES|ARA|AD|SL|DS --model opus|sonnet|sol|astra|flash --name TITLE --task-file FILE [--fresh | --source-thread UUID] [--thread-id UUID] [--dry-run | --mcp-plan] [--wait started|completed] [--timeout SECONDS] [--project PATH] [--server URL] [--home PATH] [--cli PATH]\n--fresh creates an empty session without a base; otherwise fork the explicit source or configured base. Use --task TEXT instead of --task-file; --task-file - accepts stdin. Standalone fresh sessions default to approval-required/default; --runtime-mode and --interaction-mode override them. Managed fresh sessions inherit the master's modes. --environment NAME plans a managed worker on a linked machine (with --mcp-plan; --project is that machine's path, project title or ID). See references/conventions.md for names and fixed effort.");
+    console.log("--handoff-plan emits input for t3_orchestrator_handoff, allowing a busy self source and a different destination account. --effort overrides the profile default only when advertised.\nUsage: node fork-session.mjs --provider XL|ES|ARA|AD|SL|DS --model opus|sonnet|sol|astra|flash --name TITLE --task-file FILE [--fresh | --source-thread UUID] [--thread-id UUID] [--dry-run | --mcp-plan] [--wait started|completed] [--timeout SECONDS] [--project PATH] [--server URL] [--home PATH] [--cli PATH]\n--fresh creates an empty session without a base; otherwise fork the explicit source or configured base. Use --task TEXT instead of --task-file; --task-file - accepts stdin. Standalone fresh sessions default to approval-required/default; --runtime-mode and --interaction-mode override them. Managed fresh sessions inherit the master's modes. --environment NAME plans a managed worker on a linked machine (with --mcp-plan; --project is that machine's path, project title or ID). See references/conventions.md for names.\n--mcp-plan requires the master's assessment: --difficulty 0-10 --difficulty-reason TEXT --stakes 0-10 --stakes-reason TEXT. The server always runs the model/effort, account and computer recommendations and records them next to this choice. For a pinned choice that differs from its recommendation, give --override-model/--override-account/--override-computer REASON (for example \"user specified ES Opus xhigh\"); a fork's continuity reason is recorded automatically.");
     return;
   }
   requireValue(Boolean(values.task) !== Boolean(values["task-file"]), "Provide exactly one of --task or --task-file.");
@@ -302,6 +322,7 @@ async function main() {
   requireValue(!values["interaction-mode"] || (values.fresh && !values["mcp-plan"] && ["default", "plan"].includes(values["interaction-mode"])), "--interaction-mode is for standalone fresh sessions: default or plan.");
   const task = values["task-file"] ? readFileSync(values["task-file"] === "-" ? 0 : values["task-file"], "utf8") : values.task;
   requireValue(!(values["handoff-plan"] && values["mcp-plan"]), "Choose --handoff-plan or --mcp-plan.");
+  const recommendation = values["mcp-plan"] ? recommendationInput(values) : {};
   requireValue(!values.environment || ((values["mcp-plan"] || values["dry-run"]) && !values["handoff-plan"] && values.project),
     "--environment plans a managed worker: use it with --mcp-plan (or --dry-run) and that machine's --project.");
   const input = {
@@ -323,7 +344,7 @@ async function main() {
   try {
     await client.connect();
     const result = await runFork(client, input, (value) => { if (!values["mcp-plan"] && !values["handoff-plan"]) console.log(JSON.stringify(value)); });
-    if (values["mcp-plan"] || values["handoff-plan"]) console.log(JSON.stringify(workerInput(result, input.task)));
+    if (values["mcp-plan"] || values["handoff-plan"]) console.log(JSON.stringify(workerInput(result, input.task, recommendation)));
     if (!input.dryRun) console.log(JSON.stringify(result));
   } catch (error) {
     console.error(JSON.stringify({ error: error.message, threadId: input.threadId, retry: "Keep this destination ID and the same task when retrying." }));
