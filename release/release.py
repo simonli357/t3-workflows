@@ -263,18 +263,28 @@ def descriptor(port, timeout=5):
         return json.load(response)
 
 
-def health(port, version, seconds, stall_ms, logs, alive=lambda: True):
-    deadline = time.monotonic() + 90
+def health(port, version, seconds, stall_ms, logs, alive=lambda: True, ready_seconds=900):
+    # Every HTTP request waits for the server's command readiness, which follows the
+    # startup worker and move reconciliation. On a busy host that takes minutes.
+    started = time.monotonic()
+    reported = started
+    last = None
     while True:
         if not alive():
             raise RuntimeError('New server exited')
         try:
             observed = descriptor(port, stall_ms / 1000)
             break
-        except (OSError, ValueError):
-            if time.monotonic() >= deadline:
-                raise RuntimeError('Server did not become ready within 90 seconds')
+        except (OSError, ValueError) as error:
+            last = f'{type(error).__name__}: {error}'
+            now = time.monotonic()
+            if now - started >= ready_seconds:
+                raise RuntimeError(f'Server did not become ready within {ready_seconds:g} seconds; last probe: {last}')
+            if now - reported >= 30:
+                reported = now
+                print(f'Waiting for server readiness: {round(now - started)}s; last probe: {last}', flush=True)
             time.sleep(.25)
+    ready = round(time.monotonic() - started, 1)
     if observed.get('serverVersion') != version:
         raise RuntimeError('Server version mismatch: ' + str(observed.get('serverVersion')))
     deadline = time.monotonic() + seconds
@@ -304,7 +314,7 @@ def health(port, version, seconds, stall_ms, logs, alive=lambda: True):
                 if float(delay) >= stall_ms:
                     raise RuntimeError('Event loop stalled for ' + delay + ' ms')
         if time.monotonic() >= deadline:
-            return {'seconds': seconds, 'maxProbeMs': round(maximum, 1), 'version': version}
+            return {'readySeconds': ready, 'seconds': seconds, 'maxProbeMs': round(maximum, 1), 'version': version}
         time.sleep(min(1, max(0, deadline - time.monotonic())))
 
 
@@ -450,7 +460,7 @@ def activate(args, built, job, rehearsal):
     try:
         if args.isolated:
             controller.start(previous)
-            health(args.port, previous_version, 1, args.stall_ms, {}, controller.alive)
+            health(args.port, previous_version, 1, args.stall_ms, {}, controller.alive, args.ready_seconds)
         controller.stop()
         # Recheck after shutdown, before any new code has touched the live database.
         closed = fingerprint(db)
@@ -460,7 +470,7 @@ def activate(args, built, job, rehearsal):
         if not WINDOWS or args.isolated:
             save(state, {'protocol': 3, 'activeVersion': built['version']})
         controller.start(target)
-        result = health(args.port, built['version'], args.health_seconds, args.stall_ms, logs, controller.alive)
+        result = health(args.port, built['version'], args.health_seconds, args.stall_ms, logs, controller.alive, args.ready_seconds)
         if ledger(db) != built['migrations']:
             raise RuntimeError('Live migration ledger differs after startup')
         marker.unlink()
@@ -475,7 +485,7 @@ def activate(args, built, job, rehearsal):
             if previous_state is not None:
                 save(state, previous_state)
             controller.start(previous)
-            health(args.port, previous_version, min(args.health_seconds, 10), args.stall_ms, {}, controller.alive)
+            health(args.port, previous_version, min(args.health_seconds, 10), args.stall_ms, {}, controller.alive, args.ready_seconds)
             marker.unlink()
             raise RuntimeError('Health check failed; rolled back to ' + previous_version + ': ' + str(error)) from error
         finally:
@@ -506,6 +516,7 @@ def parser():
     p.add_argument('--node', help='Node 26.8.2 executable')
     p.add_argument('--port', type=int, default=3773)
     p.add_argument('--migration-seconds', type=float, default=60)
+    p.add_argument('--ready-seconds', type=float, default=900, help='Longest wait for the first descriptor answer after start')
     p.add_argument('--health-seconds', type=float, default=120)
     p.add_argument('--stall-ms', type=float, default=2000)
     p.add_argument('--desktop', default=str(Path(os.environ.get('LOCALAPPDATA', str(Path.home()))) / 'Programs/t3code/T3 Code (Alpha).exe'))
@@ -517,7 +528,7 @@ def parser():
 
 def main(argv=None):
     args = parser().parse_args(argv)
-    if min(args.migration_seconds, args.health_seconds, args.stall_ms) <= 0 or not 1024 <= args.port <= 65535:
+    if min(args.migration_seconds, args.ready_seconds, args.health_seconds, args.stall_ms) <= 0 or not 1024 <= args.port <= 65535:
         raise RuntimeError('Thresholds must be positive; port must be 1024..65535')
     if sys.platform not in ['linux', 'win32'] or platform.machine().lower() not in ['x86_64', 'amd64']:
         raise RuntimeError('This release command supports the existing Linux x64 and Windows x64 installs')
@@ -528,7 +539,7 @@ def main(argv=None):
                       f'VACUUM INTO job copy if migrations pending; refuse failure or >{args.migration_seconds}s; delete copy',
                       'lock runtime/t3w-deploy/host.lock; refuse unfinished deployment claims',
                       'stage a new version; stop t3code.service then app-t3code-agents.slice; switch; start' if not WINDOWS else 'interactive desktop: captured PID close; swap repacked server.asar/app.asar; start',
-                      f'check HTTP, exact version, event-loop stalls for {args.health_seconds}s',
+                      f'wait up to {args.ready_seconds:g}s for readiness; then check HTTP, exact version, event-loop stalls for {args.health_seconds}s',
                       'on failure: stop; rollback only if ledger AND schema unchanged; otherwise leave stopped'],
             'windows': 'In signed-in desktop PowerShell: node "$HOME\\t3-workflows\\bin\\t3w.mjs" release --ref origin/main'}, indent=2))
         check_claim(home)

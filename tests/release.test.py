@@ -80,6 +80,15 @@ class ReleaseTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, 'stalled'):
                 release.health(9000, 'wanted', 1, 2000, {log: 0})
 
+    def test_readiness_outlasts_slow_startup_and_reports_last_probe(self):
+        with patch.object(release, 'descriptor', side_effect=TimeoutError('timed out')), patch.object(release.time, 'sleep'):
+            with self.assertRaisesRegex(RuntimeError, 'within 0.01 seconds; last probe: TimeoutError: timed out'):
+                release.health(9000, 'wanted', 1, 2000, {}, ready_seconds=0.01)
+        answers = [TimeoutError('timed out')] * 3 + [{'serverVersion': 'wanted'}] * 3
+        with patch.object(release, 'descriptor', side_effect=answers), patch.object(release.urllib.request, 'urlopen') as request:
+            request.return_value.__enter__.return_value.status = 200
+            self.assertEqual(release.health(9000, 'wanted', 0.01, 2000, {})['version'], 'wanted')
+
     def test_failed_start_rolls_back_only_without_live_migration(self):
         for migrates in [False, True]:
             with self.subTest(migrates=migrates), tempfile.TemporaryDirectory() as folder:
