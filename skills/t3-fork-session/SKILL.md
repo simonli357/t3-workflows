@@ -244,7 +244,8 @@ When reassigning an existing session, rename it to reflect its current issue/tas
 - `t3_worker_send`: send a correction or new assignment to the **same thread**,
   with a fresh `clientRequestId`. Keep that ID and identical prompt on retries.
   It preserves the account, model, reasoning effort, and saved permission/interaction modes.
-  A busy worker queues the prompt durably; it is not interrupted.
+  A busy worker receives it inside its running turn; if steering fails it is queued
+  durably for the next turn.
 - `t3_worker_wait`: wait briefly for a specific assignment using its `requestId`.
   Timeout does not cancel work. Prefer automatic reports for long tasks.
 - `t3_worker_control`: disable/re-enable reports, cancel a queued assignment with
@@ -493,9 +494,9 @@ are durable. During the communication window, explicit blocker reports are refus
 without queuing or notifying the master. Runtime notices wait until expiry and
 are delivered only if still relevant; original errors and genuine pending
 approvals remain visible in the worker/user UI. After expiry, blockers and relevant
-runtime notices can reach a busy master. A `done` report waits
-while the master's other workers are still running, for at most 20 minutes, and
-completions that are waiting together arrive as one digest. Stop suppresses automatic wake-up: the report still
+runtime notices can reach a busy master. A `done` report reaches an
+idle master immediately; reports that arrive while the master is mid-turn are
+delivered together as one digest when that turn ends. Stop suppresses automatic wake-up: the report still
 appears, and reaches the agent when the master resumes. Report `done` only after
 the assigned work and its required background checks finish. Provider failures
 and requests for input notify automatically only after the window and if still
