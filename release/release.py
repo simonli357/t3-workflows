@@ -167,7 +167,9 @@ def build(args, job):
     env['PATH'] = str(Path(node).parent) + os.pathsep + env['PATH']
     env.update({'TMPDIR': str(job / 'tmp'), 'TMP': str(job / 'tmp'), 'TEMP': str(job / 'tmp'),
                 'XDG_CACHE_HOME': str(job / 'cache'), 'npm_config_cache': str(job / 'cache/npm'),
-                'ELECTRON_CACHE': str(job / 'cache/electron'), 'npm_config_engine_strict': 'false'})
+                'ELECTRON_CACHE': str(job / 'cache/electron'), 'npm_config_engine_strict': 'false',
+                # Unattended runs must not stop at Corepack's interactive pnpm download prompt.
+                'COREPACK_ENABLE_DOWNLOAD_PROMPT': '0'})
     (job / 'tmp').mkdir(exist_ok=True)
     repo = Path(args.repo).resolve()
     if not repo.exists():
