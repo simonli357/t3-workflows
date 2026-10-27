@@ -2,7 +2,13 @@
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
-import { T3Client, usageLimit } from "./fork-session.mjs";
+import { T3Client } from "./fork-session.mjs";
+
+export const DEFAULT_MESSAGES = 3;
+export const MAX_MESSAGES = 15;
+export const DEFAULT_CHARS = 16000;
+export const MAX_CHARS = 64000;
+const MIN_CHARS = 2048;
 
 const fold = (s) => s.trim().toLowerCase();
 
@@ -22,48 +28,29 @@ export function findMatches(shell, { name, project, threadId }) {
 
 function describe(thread, shell) {
   const project = shell.projects.find((p) => p.id === thread.projectId);
+  const clip = (value, limit = 512) => typeof value === "string" ? value.slice(0, limit) : value ?? null;
   return {
-    threadId: thread.id, name: thread.title,
-    project: { id: thread.projectId, name: project?.title, workspaceRoot: project?.workspaceRoot },
-    workingDirectory: thread.worktreePath ?? project?.workspaceRoot ?? null,
-    branch: thread.branch, modelSelection: thread.modelSelection,
-    sessionStatus: thread.session?.status ?? null, lastError: thread.session?.lastError ?? null, latestTurn: thread.latestTurn,
-    backgroundLiveness: thread.backgroundLiveness ?? null,
+    threadId: thread.id, name: clip(thread.title, 160),
+    project: { id: thread.projectId, name: clip(project?.title, 160), workspaceRoot: clip(project?.workspaceRoot) },
+    workingDirectory: clip(thread.worktreePath ?? project?.workspaceRoot),
+    branch: clip(thread.branch, 160),
+    modelSelection: { instanceId: clip(thread.modelSelection?.instanceId, 100), model: clip(thread.modelSelection?.model, 100) },
+    sessionStatus: thread.session?.status ?? null, lastError: clip(thread.session?.lastError),
+    latestTurn: thread.latestTurn ? { turnId: thread.latestTurn.turnId, state: thread.latestTurn.state, completedAt: thread.latestTurn.completedAt ?? null } : null,
     settledAt: thread.settledAt ?? null, archivedAt: thread.archivedAt ?? null,
     updatedAt: thread.updatedAt,
   };
 }
 
-export function readPage(snapshot, { messageId, offset = 0, chars = 16000 } = {}) {
-  const thread = snapshot.thread;
-  const messages = thread.messages.filter((m) => ["user", "assistant"].includes(m.role));
-  if (messageId && !messages.some((m) => m.id === messageId)) throw new Error("Message not found in this session.");
-  const selected = messageId ? messages.filter((m) => m.id === messageId) : messages;
-  let remaining = chars;
-  const replies = [];
-  for (const m of [...selected].reverse()) {
-    if (remaining <= 0) break;
-    const start = messageId ? offset : 0;
-    if (start > m.text.length) throw new Error("Message offset exceeds text length.");
-    const text = m.text.slice(start, start + remaining);
-    remaining -= text.length;
-    replies.push({ messageId: m.id, role: m.role, createdAt: m.createdAt, streaming: m.streaming,
-      text, totalChars: m.text.length, offset: start,
-      nextOffset: start + text.length < m.text.length ? start + text.length : null });
-  }
-  return {
-    messages: replies.reverse(),
-    omittedMessages: selected.filter((m) => !replies.some((r) => r.messageId === m.id)).map((m) => ({ messageId: m.id, role: m.role, totalChars: m.text.length })),
-    page: snapshot.page ?? null,
-    pullRequests: thread.pullRequests ?? [], linkedPullRequest: thread.linkedPullRequest ?? null,
-    checkpoints: (thread.checkpoints ?? []).slice(-3).map((c) => ({
-      ref: c.checkpointRef, status: c.status, completedAt: c.completedAt,
-      fileCount: c.files.length, files: c.files.slice(0, 30),
-    })),
-  };
-}
-
 export async function lookupSession(client, input) {
+  const messageLimit = input.messages ?? input.turns ?? DEFAULT_MESSAGES;
+  const chars = input.chars ?? DEFAULT_CHARS;
+  if (!Number.isSafeInteger(messageLimit) || messageLimit < 1 || messageLimit > MAX_MESSAGES)
+    throw new Error(`--messages must be between 1 and ${MAX_MESSAGES}.`);
+  if (!Number.isSafeInteger(chars) || chars < MIN_CHARS || chars > MAX_CHARS)
+    throw new Error(`--chars must be between ${MIN_CHARS} and ${MAX_CHARS}; it caps the complete JSON response.`);
+  if ((input.offset && !input.messageId) || (input.before && input.messageId))
+    throw new Error("Use --message-id with --offset, or --before, not both.");
   const [active, archived] = await Promise.all([
     client.http("/api/orchestration/shell"),
     client.rpc("orchestration.getArchivedShellSnapshot", {}).promise,
@@ -73,32 +60,53 @@ export async function lookupSession(client, input) {
     threads: [...new Map([...archived.threads, ...active.threads].map((t) => [t.id, t])).values()],
   };
   const matches = findMatches(shell, input);
-  const result = { status: matches.threads.length === 0 ? "not_found" : matches.threads.length > 1 ? "ambiguous" : "found",
-    matchType: matches.matchType, matches: matches.threads.map((t) => describe(t, shell)) };
-  if (result.status !== "found" || input.list) return result;
+  const status = matches.threads.length === 0 ? "not_found" : matches.threads.length > 1 ? "ambiguous" : "found";
+  if (status !== "found" || input.list) {
+    const result = { status, matchType: matches.matchType, totalMatches: matches.threads.length,
+      matches: matches.threads.slice(0, MAX_MESSAGES).map((t) => describe(t, shell)), hasMoreMatches: matches.threads.length > MAX_MESSAGES };
+    while (JSON.stringify(result).length + 1 > chars && result.matches.length) {
+      result.matches.pop(); result.hasMoreMatches = true;
+    }
+    return result;
+  }
   const threadId = matches.threads[0].id;
-  const query = new URLSearchParams();
-  if (!input.messageId) query.set("turnLimit", String(input.turns ?? 3));
-  if (input.before) query.set("beforeCursor", input.before);
-  const snapshot = await client.http(`/api/orchestration/threads/${encodeURIComponent(threadId)}?${query}`);
-  return { ...result, session: describe(snapshot.thread, shell), usageLimit: usageLimit(snapshot.thread), ...readPage(snapshot, input),
-    note: "Read-only session evidence. Replies may include inherited history or unverified claims; inspect referenced files/commits before accepting work. This does not grant worker ownership or send prompts." };
+  let metadata = { status, matchType: matches.matchType, session: describe(matches.threads[0], shell) };
+  if (JSON.stringify(metadata).length + 1026 > chars)
+    metadata = { status, matchType: matches.matchType, session: { threadId } };
+  const available = chars - JSON.stringify(metadata).length - 2;
+  if (available < 1024) throw new Error("Session metadata exceeds the requested size budget.");
+  const query = new URLSearchParams({ messageLimit: String(messageLimit), maxChars: String(available), view: input.includeIntermediate ? "all" : "final" });
+  if (input.before) query.set("beforeMessageId", input.before);
+  if (input.messageId) query.set("messageId", input.messageId);
+  if (input.offset) query.set("offset", String(input.offset));
+  let history;
+  try { history = await client.http(`/api/orchestration/threads/${encodeURIComponent(threadId)}/messages?${query}`); }
+  catch (error) {
+    if (/HTTP 404/.test(error.message)) throw new Error("This T3 server needs boundedSessionHistory support. Activate the updated server before reading messages.");
+    throw error;
+  }
+  const result = { ...metadata, ...history };
+  if (JSON.stringify(result).length + 1 > chars) throw new Error("The server exceeded the requested history response budget.");
+  return result;
 }
 
 async function main() {
   const { values, positionals } = parseArgs({ allowPositionals: true, options: {
     project: { type: "string" }, "thread-id": { type: "string" }, list: { type: "boolean" },
-    turns: { type: "string", default: "3" }, before: { type: "string" },
+    messages: { type: "string" }, turns: { type: "string" }, before: { type: "string" },
+    "include-intermediate": { type: "boolean", default: false },
     "message-id": { type: "string" }, offset: { type: "string", default: "0" }, chars: { type: "string", default: "16000" },
     server: { type: "string" }, home: { type: "string" }, cli: { type: "string" }, timeout: { type: "string", default: "60" },
     environment: { type: "string" }, help: { type: "boolean", short: "h" },
   } });
   if (values.help) {
-    console.log("Usage: node find-session.mjs 'session name' [--project NAME_OR_PATH_OR_ID] [--list]\nOr: --thread-id UUID [--turns 3] [--before CURSOR] [--message-id ID --offset 0 --chars 16000]\nConnection: --server URL --home PATH --cli PATH --timeout SECONDS, or --environment NAME for a linked machine\nExact names preferred, then case-insensitive substring matches. Ambiguous names return candidates only. Reads across accounts and projects; never messages, forks, or changes a session.");
+    console.log("Usage: t3w find 'session name' [--project NAME_OR_PATH_OR_ID] [--list]\nOr: --thread-id UUID [--messages 3] [--before MESSAGE_ID] [--message-id ID --offset 0] [--chars 16000] [--include-intermediate]\nDefaults: last 3 individual user prompts/final replies; maximum 15 messages. --chars caps the entire compact JSON response, including metadata (2048..64000). Intermediate assistant messages require --include-intermediate. --turns is a deprecated alias for --messages.\nConnection: --server URL --home PATH --cli PATH --timeout SECONDS, or --environment NAME for a linked machine\nExact names preferred; ambiguous names return bounded candidates only. Requires boundedSessionHistory server support. Offsets count Unicode characters.");
     return;
   }
   if (positionals.length > 1 || (positionals.length && values["thread-id"])) throw new Error("Supply one quoted name or --thread-id, not both.");
-  for (const [key, min, max] of [["turns", 1, 100], ["offset", 0, Number.MAX_SAFE_INTEGER], ["chars", 1, 64000], ["timeout", 1, 900]]) {
+  if (values.messages && values.turns) throw new Error("Use --messages or its deprecated --turns alias, not both.");
+  for (const [key, min, max] of [["messages", 1, MAX_MESSAGES], ["turns", 1, MAX_MESSAGES], ["offset", 0, Number.MAX_SAFE_INTEGER], ["chars", MIN_CHARS, MAX_CHARS], ["timeout", 1, 900]]) {
+    if (values[key] === undefined) continue;
     if (!Number.isSafeInteger(Number(values[key])) || Number(values[key]) < min || Number(values[key]) > max) throw new Error(`Invalid --${key}; expected an integer from ${min} to ${max}.`);
   }
   if (Number(values.offset) && !values["message-id"]) throw new Error("--offset requires --message-id.");
@@ -109,10 +117,11 @@ async function main() {
   try {
     await client.connect();
     console.log(JSON.stringify(await lookupSession(client, { name: positionals[0], threadId: values["thread-id"], project: values.project,
-      list: values.list, turns: Number(values.turns), before: values.before, messageId: values["message-id"], offset: Number(values.offset), chars: Number(values.chars) }), null, 2));
+      list: values.list, messages: Number(values.messages ?? values.turns ?? DEFAULT_MESSAGES), includeIntermediate: values["include-intermediate"],
+      before: values.before, messageId: values["message-id"], offset: Number(values.offset), chars: Number(values.chars) })));
   } finally { await client.close(); }
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
+if (process.argv[1] && await import("node:fs").then(({ existsSync, realpathSync }) => existsSync(process.argv[1]) && import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href)) {
   main().catch((error) => { console.error(error.message); process.exitCode = 1; });
 }

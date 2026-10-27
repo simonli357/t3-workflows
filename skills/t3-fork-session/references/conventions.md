@@ -3,7 +3,9 @@
 Run `t3w profile [--project NAME_OR_PATH]` for account aliases, native model IDs,
 fixed efforts, base names, and the selected project's naming policy. These are
 configuration, not hardcoded script decisions. Respect explicit user choices;
-otherwise use capacity and task needs to select a compatible profile.
+for fresh work, supply task scores and host constraints to the deterministic
+[selection policy](selection-policy.md), which recommends unspecified profiles/accounts. The master chooses the account
+and starts it; quota and pacing warnings are advisory.
 
 All new worker names are lowercase, including the model suffix. For issue work,
 use `<epic>_<repository-prefix><issue-number>_<keyword>_<model>`. Omit `<epic>_`
@@ -21,7 +23,9 @@ ambiguous matches. Ordinary worker forks require the source account and project.
 handoffs can change the destination profile after copying the source. Preserve source modes, working directory, and branch. Never assign work
 to a base or modify its context while forking. Reuse an owned worker for corrections.
 
-Model efforts default to the configured fixed profile. An explicit user choice
-or authorized profile change can override effort with an advertised value.
-Selections are checked against the live catalog. The tools do not rank accounts or choose models. Preserve supported
-inherited options, explicit constraints, and the chosen profile on retries.
+Automatic fresh-work effort comes from the configured service policy. Exact
+user/model overrides and legacy/fork profiles use applicable fixed-profile defaults
+for omitted options; explicit options stay exact. Selections are checked against
+the target catalog. Preserve supported inherited options, explicit constraints,
+and the entire pinned allocation/start input on retries. Name from the returned
+model; do not manually choose a different model to fit an existing suffix.
