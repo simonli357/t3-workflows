@@ -565,7 +565,8 @@ When the user requests a base refresh, run
 to execute. It prepares fresh sessions with exactly `understand project`, or the
 text given with `--prompt` (for example `--prompt "understand the key ara repos"`
 when the bases serve work in other repositories). It waits for each reply, pins
-the replacement, deletes the old T3 base, and gives the replacement its base name.
+the replacement, deletes the old T3 base, and gives the replacement its base name
+and T3 Base designation (`isBase`), so T3 lists it as the project's Base.
 Existing worker forks are untouched. Missing configured bases are created. Existing base models/modes are retained with the profile's fixed effort;
 new bases use Opus XHigh, Astra High, or Flash Max with full access.
 

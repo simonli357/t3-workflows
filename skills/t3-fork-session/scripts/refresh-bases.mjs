@@ -86,9 +86,9 @@ export async function refreshBase(client, plan, emit = () => {}) {
     ensure(idle(old) && (old.latestTurn?.turnId ?? null) === plan.oldTurnId && selectionKey(old.modelSelection) === selectionKey(plan.oldSelection), `${plan.base} changed or became busy; old base retained.`);
     await client.dispatch({ type: "thread.delete", commandId: `base:${plan.threadId}:delete-old`, threadId: plan.oldId });
   }
-  await client.dispatch({ type: "thread.meta.update", commandId: `base:${plan.threadId}:promote`, threadId: plan.threadId, title: plan.base });
+  await client.dispatch({ type: "thread.meta.update", commandId: `base:${plan.threadId}:promote`, threadId: plan.threadId, title: plan.base, isBase: true });
   const promoted = await client.thread(plan.threadId);
-  ensure(promoted.title === plan.base && promoted.pinnedAt, `Could not rename ${plan.threadId} to ${plan.base}.`);
+  ensure(promoted.title === plan.base && promoted.pinnedAt && promoted.isBase, `Could not rename ${plan.threadId} to ${plan.base} and mark it as a T3 Base.`);
   emit({ phase: "ready", base: plan.base, threadId: plan.threadId, deletedThreadId: plan.oldId });
 }
 
@@ -99,7 +99,7 @@ async function main() {
     timeout: { type: "string", default: "600" }, help: { type: "boolean", short: "h" },
   } });
   if (values.help) {
-    console.log('Usage: node refresh-bases.mjs [--apply] [--provider XL ...] [--project PATH] [--prompt TEXT] [--timeout SECONDS] [--server URL] [--home PATH] [--cli PATH]\nDefault previews all bases. --apply starts fresh sessions with "understand project" (or a project profile basePrompt, or --prompt), waits for each response, deletes each old T3 base and assigns its name to the pinned replacement. Existing forks are untouched. Failed preparations retain the old base and a *_base_refresh session for retry.');
+    console.log('Usage: node refresh-bases.mjs [--apply] [--provider XL ...] [--project PATH] [--prompt TEXT] [--timeout SECONDS] [--server URL] [--home PATH] [--cli PATH]\nDefault previews all bases. --apply starts fresh sessions with "understand project" (or a project profile basePrompt, or --prompt), waits for each response, deletes each old T3 base and assigns its name and T3 Base designation to the pinned replacement. Existing forks are untouched. Failed preparations retain the old base and a *_base_refresh session for retry.');
     return;
   }
   const timeout = Number(values.timeout);

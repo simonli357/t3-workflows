@@ -17,7 +17,7 @@ function fixture() {
       if (command.type === "thread.turn.start") shell.threads.find((t) => t.id === command.threadId).messages.push({ ...command.message, id: command.message.messageId });
       if (command.type === "thread.pin") shell.threads.find((t) => t.id === command.threadId).pinnedAt = new Date().toISOString();
       if (command.type === "thread.delete") shell.threads = shell.threads.filter((t) => t.id !== command.threadId);
-      if (command.type === "thread.meta.update") shell.threads.find((t) => t.id === command.threadId).title = command.title;
+      if (command.type === "thread.meta.update") Object.assign(shell.threads.find((t) => t.id === command.threadId), { title: command.title, isBase: command.isBase });
     },
     async waitForTurn(plan) {
       if (this.failTurn) throw new Error("Provider unavailable");
@@ -43,6 +43,7 @@ test("refresh creates an independent base with the exact prompt and preserves ex
   assert.equal(f.shell.threads.find((t) => t.title === "xl_base").id, plan.threadId);
   assert.equal(f.shell.threads.some((t) => t.id === f.old.id), false);
   assert.ok(f.shell.threads.find((t) => t.id === plan.threadId).pinnedAt);
+  assert.equal(f.shell.threads.find((t) => t.id === plan.threadId).isBase, true);
 });
 
 test("failed preparation retains old base and retry reuses the pending session and prompt", async () => {
