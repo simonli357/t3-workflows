@@ -1,0 +1,18 @@
+{
+  "commit": "REPLACE-FULL-COMMIT",
+  "version": "REPLACE-EXACT-VERSION",
+  "platforms": ["linux-x64", "win32-x64"],
+  "before": {
+    "migrationIds": [1, 2],
+    "schemaSha256": "REPLACE-OLD-64-HEX"
+  },
+  "after": {
+    "migrationIds": [1, 2, 3],
+    "schemaSha256": "REPLACE-NEW-64-HEX"
+  },
+  "integrity": "ok",
+  "preservation": "passed",
+  "maxSourceBytes": "REPLACE-REVIEWED-SOURCE-SIZE-CEILING",
+  "maxExtraBytes": "REPLACE-REVIEWED-PEAK-EXTRA-BOUND",
+  "notes": "Replace every placeholder and list only platforms actually rehearsed. In release-spec compatibility set migrations=forward-only; database toMigrations/toSchemaSha256 to the rehearsed result; database maxSourceBytes/maxExtraBytes to the reviewed bounds; database rehearsal={source:relative-path-to-this-file,sha256:its-checksum}; database recovery=release-specific forward recovery procedure. Never set rollback to database restoration. Example migration ids are illustrative; use the complete observed ledgers."
+}

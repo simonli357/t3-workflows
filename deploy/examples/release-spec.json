@@ -1,0 +1,38 @@
+{
+  "schema": 1,
+  "id": "custom-42",
+  "version": "0.0.45+custom.42",
+  "commit": "0000000000000000000000000000000000000000",
+  "compatibility": {
+    "fromVersions": ["0.0.45+custom.41"],
+    "migrations": "none",
+    "rollback": "never",
+    "continuation": "native-v1",
+    "review": "REPLACE: exact old/new source comparison and restart/profile preservation evidence",
+    "database": {
+      "fromMigrations": [1, 2],
+      "toMigrations": [1, 2],
+      "fromSchemaSha256": "REPLACE-WITH-OBSERVED-64-HEX",
+      "toSchemaSha256": "REPLACE-WITH-REHEARSED-64-HEX",
+      "maxExtraBytes": 0
+    }
+  },
+  "minimumCapabilities": ["serverUpdateThreadContinuation", "nativeSessionMoves"],
+  "requiredCapabilities": ["serverUpdateThreadContinuation", "nativeSessionMoves", "workerFreshSessions"],
+  "payloads": [
+    {
+      "platform": "linux-x64",
+      "kind": "boot-service",
+      "root": "payload/linux-x64",
+      "clientVersion": "0.0.45+custom.42",
+      "executableFiles": ["t3", "resource-monitor"]
+    },
+    {
+      "platform": "win32-x64",
+      "kind": "desktop-files",
+      "root": "payload/win32-x64",
+      "clientVersion": "0.0.45+custom.42",
+      "smokeReview": "REPLACE: isolated packaged desktop/server version and complete client hash evidence"
+    }
+  ]
+}
