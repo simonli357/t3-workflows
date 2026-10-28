@@ -531,6 +531,15 @@ acknowledgment to the worker.
   coordinate it through that worker's master-visible result. Ask the user only
   for a necessary decision, missing access, or action outside existing authority.
   Leave unresolved work unsettled; do not disguise a blocker as acceptance.
+- **Blocked on disk space:** resolve it yourself on the affected computer; a disk
+  under its reserve is not a reason to move the work to a worse computer or stop.
+  Sessions run in project folders, so the worker first needs a job:
+  `workenv job --session <id> --cwd <project>` falls back to the computer's next
+  job disk when the first is short. From that job, `workenv place --disk N` picks
+  a disk or connected computer with room for new data, and `workenv move` takes
+  finished inactive outputs off a full disk (see the `workenv-cleanup` skill).
+  Send the worker the exact commands that worked. Tell the user only when
+  `workenv capacity` shows nothing configured fits, naming the computer and shortfall.
 - **Still working:** let the worker continue. Do not interrupt it, queue redundant
   instructions, or settle it merely because an earlier turn ended.
 
