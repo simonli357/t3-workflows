@@ -21,6 +21,7 @@ from repack import repack, read_file
 
 HERE = Path(__file__).resolve().parent
 WINDOWS = os.name == 'nt'
+STARTUP_SETTLE_SECONDS = 30
 
 
 def run(args, *, cwd=None, env=None, timeout=300, capture=False):
@@ -266,43 +267,57 @@ def descriptor(port, timeout=5):
 
 
 def health(port, version, seconds, stall_ms, logs, alive=lambda: True, ready_seconds=900):
-    # Every HTTP request waits for the server's command readiness, which follows the
-    # startup worker and move reconciliation. On a busy host that takes minutes.
-    started = time.monotonic()
-    reported = started
-    last = None
-    while True:
+    def probe():
+        started = time.monotonic()
         if not alive():
             raise RuntimeError('New server exited')
-        try:
-            observed = descriptor(port, stall_ms / 1000)
-            break
-        except (OSError, ValueError) as error:
-            last = f'{type(error).__name__}: {error}'
-            now = time.monotonic()
-            if now - started >= ready_seconds:
-                raise RuntimeError(f'Server did not become ready within {ready_seconds:g} seconds; last probe: {last}')
-            if now - reported >= 30:
-                reported = now
-                print(f'Waiting for server readiness: {round(now - started)}s; last probe: {last}', flush=True)
-            time.sleep(.25)
-    ready = round(time.monotonic() - started, 1)
-    if observed.get('serverVersion') != version:
-        raise RuntimeError('Server version mismatch: ' + str(observed.get('serverVersion')))
-    deadline = time.monotonic() + seconds
-    maximum = 0
-    while True:
-        started = time.monotonic()
-        if not alive() or descriptor(port, stall_ms / 1000).get('serverVersion') != version:
-            raise RuntimeError('Server exited or changed version during health check')
+        observed = descriptor(port, stall_ms / 1000)
+        if observed.get('serverVersion') != version:
+            raise RuntimeError('Server version mismatch: ' + str(observed.get('serverVersion')))
         with urllib.request.urlopen(f'http://127.0.0.1:{port}/', timeout=stall_ms / 1000) as response:
             if response.status != 200:
                 raise RuntimeError('Web client did not answer')
             response.read(1024)
         elapsed = (time.monotonic() - started) * 1000
-        maximum = max(maximum, elapsed)
         if elapsed >= stall_ms:
-            raise RuntimeError('HTTP health probe stalled for ' + str(round(elapsed)) + ' ms')
+            raise TimeoutError('HTTP health probe stalled for ' + str(round(elapsed)) + ' ms')
+        return elapsed
+
+    # Command readiness releases the first background sweeps too. Require stable HTTP
+    # for one event-loop sampling interval before measuring strict steady-state health.
+    started = time.monotonic()
+    reported = started
+    stable_since = None
+    last = None
+    while True:
+        try:
+            probe()
+        except (OSError, ValueError) as error:
+            stable_since = None
+            last = f'{type(error).__name__}: {error}'
+        else:
+            now = time.monotonic()
+            if stable_since is None:
+                stable_since = now
+            if now - stable_since >= STARTUP_SETTLE_SECONDS:
+                break
+            last = f'HTTP responsive for {now - stable_since:g}s; settling startup'
+        now = time.monotonic()
+        if now - started >= ready_seconds:
+            raise RuntimeError(f'Server did not become ready within {ready_seconds:g} seconds; last probe: {last}')
+        if now - reported >= 30:
+            reported = now
+            print(f'Waiting for server readiness: {round(now - started)}s; last probe: {last}', flush=True)
+        time.sleep(min(1, max(0, ready_seconds - (now - started))))
+    ready = round(time.monotonic() - started, 1)
+    for directory in {file.parent for file in logs}:
+        for file in directory.glob('*.log'):
+            logs[file] = file.stat().st_size
+    deadline = time.monotonic() + seconds
+    maximum = 0
+    while True:
+        elapsed = probe()
+        maximum = max(maximum, elapsed)
         for directory in {file.parent for file in logs}:
             for file in directory.glob('*.log'):
                 logs.setdefault(file, 0)
@@ -518,7 +533,7 @@ def parser():
     p.add_argument('--node', help='Node 26.8.2 executable')
     p.add_argument('--port', type=int, default=3773)
     p.add_argument('--migration-seconds', type=float, default=60)
-    p.add_argument('--ready-seconds', type=float, default=900, help='Longest wait for the first descriptor answer after start')
+    p.add_argument('--ready-seconds', type=float, default=900, help='Startup budget including 30 seconds of responsive descriptor and web probes')
     p.add_argument('--health-seconds', type=float, default=120)
     p.add_argument('--stall-ms', type=float, default=2000)
     p.add_argument('--desktop', default=str(Path(os.environ.get('LOCALAPPDATA', str(Path.home()))) / 'Programs/t3code/T3 Code (Alpha).exe'))

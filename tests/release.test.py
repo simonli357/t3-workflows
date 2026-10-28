@@ -1,4 +1,4 @@
-from contextlib import closing
+from contextlib import closing, contextmanager
 import json
 from pathlib import Path
 import sqlite3
@@ -23,6 +23,14 @@ class ReleaseTests(unittest.TestCase):
 
     def tearDown(self):
         self.temporary.cleanup()
+
+    @contextmanager
+    def clock(self):
+        now = [0.0]
+        with patch.object(release.time, 'monotonic', side_effect=lambda: now[0]), patch.object(
+            release.time, 'sleep', side_effect=lambda seconds: now.__setitem__(0, now[0] + seconds)
+        ):
+            yield now
 
     def test_vacuum_copies_committed_wal_and_preserves_source(self):
         with closing(sqlite3.connect(self.db)) as db, db:
@@ -74,20 +82,68 @@ class ReleaseTests(unittest.TestCase):
         with patch.object(release, 'descriptor', return_value={'serverVersion': 'wrong'}):
             with self.assertRaisesRegex(RuntimeError, 'version mismatch'):
                 release.health(9000, 'wanted', 1, 2000, {})
-        log = self.root / 'server.log'; log.write_text('event loop stalled for 3500 ms\n')
-        with patch.object(release, 'descriptor', return_value={'serverVersion': 'wanted'}), patch.object(release.urllib.request, 'urlopen') as request:
+        log = self.root / 'server.log'; log.write_text('')
+        with self.clock() as now, patch.object(release.urllib.request, 'urlopen') as request:
+            def descriptor(*args):
+                if now[0] >= 31:
+                    log.write_text('event loop stalled for 2014 ms\n')
+                return {'serverVersion': 'wanted'}
             request.return_value.__enter__.return_value.status = 200
-            with self.assertRaisesRegex(RuntimeError, 'stalled'):
+            with patch.object(release, 'descriptor', side_effect=descriptor), self.assertRaisesRegex(RuntimeError, 'stalled for 2014 ms'):
                 release.health(9000, 'wanted', 1, 2000, {log: 0})
+            self.assertEqual(now[0], 31)
 
     def test_readiness_outlasts_slow_startup_and_reports_last_probe(self):
-        with patch.object(release, 'descriptor', side_effect=TimeoutError('timed out')), patch.object(release.time, 'sleep'):
+        with self.clock(), patch.object(release, 'descriptor', side_effect=TimeoutError('timed out')):
             with self.assertRaisesRegex(RuntimeError, 'within 0.01 seconds; last probe: TimeoutError: timed out'):
                 release.health(9000, 'wanted', 1, 2000, {}, ready_seconds=0.01)
-        answers = [TimeoutError('timed out')] * 3 + [{'serverVersion': 'wanted'}] * 3
-        with patch.object(release, 'descriptor', side_effect=answers), patch.object(release.urllib.request, 'urlopen') as request:
+
+    def test_first_response_does_not_end_startup_and_startup_stall_is_not_steady_state(self):
+        log = self.root / 'server.log'; log.write_text('')
+        with self.clock() as now, patch.object(release.urllib.request, 'urlopen') as request:
+            def descriptor(port, timeout):
+                self.assertEqual(timeout, 2)
+                if now[0] < 3 or now[0] == 4:
+                    raise TimeoutError('HTTP response headers timed out')
+                if now[0] == 10:
+                    log.write_text('event loop stalled for 2014 ms\n')
+                return {'serverVersion': 'wanted'}
             request.return_value.__enter__.return_value.status = 200
-            self.assertEqual(release.health(9000, 'wanted', 0.01, 2000, {})['version'], 'wanted')
+            with patch.object(release, 'descriptor', side_effect=descriptor):
+                result = release.health(9000, 'wanted', 120, 2000, {log: 0})
+            self.assertEqual(result['readySeconds'], 35)
+            self.assertEqual(result['seconds'], 120)
+            self.assertEqual(now[0], 155)
+            self.assertTrue(all(call.kwargs['timeout'] == 2 for call in request.call_args_list))
+
+    def test_settling_retries_share_the_original_readiness_deadline(self):
+        with self.clock() as now, patch.object(release.urllib.request, 'urlopen') as request:
+            def descriptor(*args):
+                if now[0] % 4 == 2:
+                    raise TimeoutError('startup burst')
+                return {'serverVersion': 'wanted'}
+            request.return_value.__enter__.return_value.status = 200
+            with patch.object(release, 'descriptor', side_effect=descriptor), self.assertRaisesRegex(RuntimeError, 'within 40 seconds'):
+                release.health(9000, 'wanted', 120, 2000, {}, ready_seconds=40)
+            self.assertEqual(now[0], 40)
+
+    def test_steady_state_http_timeouts_fail_without_another_settling_window(self):
+        for failing_endpoint in ['descriptor', 'web']:
+            with self.subTest(endpoint=failing_endpoint), self.clock() as now, patch.object(release.urllib.request, 'urlopen') as request:
+                def descriptor(*args):
+                    if failing_endpoint == 'descriptor' and now[0] >= 31:
+                        raise TimeoutError('HTTP response headers timed out')
+                    return {'serverVersion': 'wanted'}
+                def web(*args, **kwargs):
+                    if failing_endpoint == 'web' and now[0] >= 31:
+                        raise TimeoutError('HTTP response headers timed out')
+                    return response
+                response = request.return_value
+                response.__enter__.return_value.status = 200
+                request.side_effect = web
+                with patch.object(release, 'descriptor', side_effect=descriptor), self.assertRaisesRegex(TimeoutError, 'headers timed out'):
+                    release.health(9000, 'wanted', 120, 2000, {})
+                self.assertEqual(now[0], 31)
 
     def test_failed_start_rolls_back_only_without_live_migration(self):
         for migrates in [False, True]:
