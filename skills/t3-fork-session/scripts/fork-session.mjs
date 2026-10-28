@@ -1,11 +1,11 @@
 #!/usr/bin/env node
-import { execFileSync } from "node:child_process";
+import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { existsSync, readFileSync, realpathSync } from "node:fs";
 import { homedir } from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
-import { parseArgs } from "node:util";
+import { parseArgs, promisify } from "node:util";
 
 import { accounts, models, settings, resolveProject, baseFor } from "./config.mjs";
 export const PROVIDERS = accounts;
@@ -99,7 +99,7 @@ export class T3Client {
 
   async connect() {
     if (!this.token) {
-      const issued = JSON.parse(execFileSync(this.cli, ["auth", "session", "issue", "--base-dir", this.home, "--ttl", "15m", "--label", "T3 fork skill", "--json"], { encoding: "utf8", timeout: 30000, stdio: ["ignore", "pipe", "pipe"] }));
+      const issued = JSON.parse((await promisify(execFile)(this.cli, ["auth", "session", "issue", "--base-dir", this.home, "--ttl", "15m", "--label", "T3 fork skill", "--json"], { encoding: "utf8", timeout: 30000 })).stdout);
       this.token = issued.token;
       this.authSessionId = issued.sessionId;
     }
@@ -221,7 +221,7 @@ export class T3Client {
   async close() {
     this.failPending(new Error("T3 client closed."));
     this.socket?.close();
-    if (this.authSessionId) execFileSync(this.cli, ["auth", "session", "revoke", "--base-dir", this.home, this.authSessionId], { timeout: 30000, stdio: "ignore" });
+    if (this.authSessionId) await promisify(execFile)(this.cli, ["auth", "session", "revoke", "--base-dir", this.home, this.authSessionId], { timeout: 30000 });
   }
 }
 
