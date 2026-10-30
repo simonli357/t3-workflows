@@ -28,7 +28,8 @@ export function planMove(source, sourceConfig, destination, destinationConfig, i
   const account = destinationConfig.providers.find((entry) => entry.instanceId === providerInstanceId);
   if (account?.driver !== current.driver || !account.enabled || account.auth.status !== "authenticated")
     throw new Error("Choose an authenticated destination account of the same provider using --provider-instance-id.");
-  const model = account.models.find((entry) => entry.slug === thread.modelSelection.model);
+  const model = account.models.find((entry) => entry.slug === thread.modelSelection.model
+    || entry.aliases?.includes(thread.modelSelection.model));
   if (!model) throw new Error("The destination account does not support the saved model.");
   for (const option of thread.modelSelection.options ?? []) {
     const descriptor = model.capabilities?.optionDescriptors?.find((entry) => entry.id === option.id);
