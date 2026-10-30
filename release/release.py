@@ -562,7 +562,10 @@ def main(argv=None):
         check_claim(home)
         return
     if not args.job:
-        command = ['workenv.cmd' if WINDOWS else 'workenv', 'job', '--session', str(uuid.uuid4()), '--cwd', args.repo, '--format', 'json']
+        command = ['workenv.cmd' if WINDOWS else 'workenv', 'job', '--session', str(uuid.uuid4()), '--cwd', args.repo, '--format', 'json',
+                   '--name', 'T3 release build', '--summary', 'Temporary job that builds, stages and checks one T3 release.',
+                   '--description', 'Created by t3-workflows release.py to build the custom T3 fork, stage the new version and verify its health; '
+                   'nothing in it is needed once the release is deployed or has been rolled back.', '--issue', 'none']
         if WINDOWS:
             command = ['cmd.exe', '/d', '/c', *command]
         provisioned = json.loads(run(command, capture=True, timeout=120))
