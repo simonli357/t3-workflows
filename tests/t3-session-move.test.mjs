@@ -23,3 +23,17 @@ test("maps an explicit same-provider account but refuses unsupported models or e
   assert.throws(() => planMove(source, config("alpha"), destination, config("beta", [{ ...provider, models: [] }]), { name: "Session" }), /saved model/);
   assert.throws(() => planMove(source, config("alpha"), destination, config("beta", [{ ...provider, models: [{ slug: selection.model }] }]), { name: "Session" }), /model options/);
 });
+test("plans a DeepSeek Harness move with its saved reasoning option", () => {
+  const harnessSelection = { instanceId: "deepseekHarness", model: "deepseek-v4-flash", options: [{ id: "reasoning_effort", value: "max" }] };
+  const harnessProvider = {
+    instanceId: "deepseekHarness", driver: "deepseekHarness", enabled: true, auth: { status: "authenticated" },
+    models: [{ slug: "deepseek-v4-flash", capabilities: { optionDescriptors: [
+      { id: "reasoning_effort", type: "select", options: [{ id: "off" }, { id: "low" }, { id: "high" }, { id: "max" }] },
+    ] } }],
+  };
+  const harnessSource = { ...source, threads: [{ ...source.threads[0], modelSelection: harnessSelection }] };
+  assert.deepEqual(
+    planMove(harnessSource, config("alpha", [harnessProvider]), destination, config("beta", [harnessProvider]), { name: "Session", requestId: "stable" }),
+    { requestId: "stable", threadId: "thread", environment: "beta", projectId: "target" },
+  );
+});

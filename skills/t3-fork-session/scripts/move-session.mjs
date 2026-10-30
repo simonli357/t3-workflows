@@ -22,7 +22,8 @@ export function planMove(source, sourceConfig, destination, destinationConfig, i
     : project.title === sourceProject?.title);
   if (projects.length !== 1) throw new Error("Choose one destination project using --project NAME_OR_PATH_OR_ID.");
   const current = sourceConfig.providers.find((entry) => entry.instanceId === (thread.session?.providerInstanceId ?? thread.modelSelection.instanceId));
-  if (!["codex", "claudeAgent"].includes(current?.driver)) throw new Error("Native moves support Codex to Codex and Claude to Claude.");
+  if (!["codex", "claudeAgent", "deepseekHarness"].includes(current?.driver))
+    throw new Error("Choose a session from a provider with native move support.");
   const providerInstanceId = input.providerInstanceId ?? thread.modelSelection.instanceId;
   const account = destinationConfig.providers.find((entry) => entry.instanceId === providerInstanceId);
   if (account?.driver !== current.driver || !account.enabled || account.auth.status !== "authenticated")
