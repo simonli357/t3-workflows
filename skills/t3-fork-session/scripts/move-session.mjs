@@ -55,18 +55,23 @@ async function main() {
   try {
     if (values.status) {
       const input = { requestId: values.status, ...(values.cancel ? { cancel: true } : {}) };
+      if (!values["mcp-plan"]) await sourceClient.connect();
       console.log(JSON.stringify(values["mcp-plan"] ? { tool: "t3_session_move_status", input }
         : await sourceClient.http("/api/orchestration/session-moves/status", input), null, 2)); return;
     }
     if (!values.to || !positionals[0] && !values["thread-id"]) throw new Error("Supply a session name or --thread-id, and --to COMPUTER.");
     destinationClient = peerClient(values.to, connection).client;
     await Promise.all([sourceClient.connect(), destinationClient.connect()]);
-    const [source, sourceConfig, destination, destinationConfig] = await Promise.all([
-      sourceClient.http("/api/orchestration/shell"), sourceClient.rpc("server.getConfig", {}).promise,
-      destinationClient.http("/api/orchestration/shell"), destinationClient.rpc("server.getConfig", {}).promise,
-    ]);
+    const [source, sourceConfig] = await Promise.all([sourceClient.http("/api/orchestration/shell"), sourceClient.rpc("server.getConfig", {}).promise]);
+    // A V2 destination is reached through the source's link: its checkouts of the session's repository stand in for its project list.
+    if (destinationClient.linked) {
+      const thread = findMatches(source, { name: positionals[0], threadId: values["thread-id"], project: values["source-project"] }).threads[0];
+      destinationClient.projectHint = values.project ?? source.projects.find((project) => project.id === thread?.projectId)?.workspaceRoot;
+    }
+    const [destination, destinationConfig] = await Promise.all([destinationClient.http("/api/orchestration/shell"), destinationClient.rpc("server.getConfig", {}).promise]);
+    const linkedProject = destinationClient.linked && !values.project && destination.projects.length === 1 ? destination.projects[0].id : undefined;
     const input = planMove(source, sourceConfig, destination, destinationConfig, {
-      name: positionals[0], threadId: values["thread-id"], sourceProject: values["source-project"], project: values.project,
+      name: positionals[0], threadId: values["thread-id"], sourceProject: values["source-project"], project: values.project ?? linkedProject,
       providerInstanceId: values["provider-instance-id"], requestId: values["request-id"],
     });
     console.log(JSON.stringify(values["mcp-plan"] ? { tool: "t3_session_move", input }

@@ -8,6 +8,7 @@ import { pathToFileURL } from "node:url";
 import { parseArgs, promisify } from "node:util";
 
 import { accounts, models, settings, resolveProject, baseFor } from "./config.mjs";
+import { PROTOCOL_HEADER, PROTOCOL_QUERY, forkCommand, normalizeArchived, normalizeShell, normalizeThread, protocolOf, translateCommand } from "./protocol.mjs";
 export const PROVIDERS = accounts;
 export const MODELS = models;
 
@@ -95,9 +96,20 @@ export class T3Client {
     this.token = token ?? process.env.T3_FORK_TOKEN;
     this.requests = new Map();
     this.nextId = 0;
+    this.protocol = 1;
+  }
+
+  /** Orchestration protocol of the server: 2 for T3 V2, which the scripts reach through ./protocol.mjs. */
+  async detect() {
+    try {
+      const response = await fetch(new URL("/.well-known/t3/environment", this.server), { signal: AbortSignal.timeout(Math.min(this.timeout, 15000)) });
+      if (response.ok) this.protocol = protocolOf(await response.json());
+    } catch { /* unreachable servers fail at the authenticated calls below, with their own message */ }
+    return this.protocol;
   }
 
   async connect() {
+    await this.detect();
     if (!this.token) {
       const issued = JSON.parse((await promisify(execFile)(this.cli, ["auth", "session", "issue", "--base-dir", this.home, "--ttl", "15m", "--label", "T3 fork skill", "--json"], { encoding: "utf8", timeout: 30000 })).stdout);
       this.token = issued.token;
@@ -107,6 +119,7 @@ export class T3Client {
     const url = new URL("/ws", this.server);
     url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
     url.searchParams.set("wsTicket", ticket);
+    if (this.protocol === 2) url.searchParams.set(PROTOCOL_QUERY, "2");
     this.socket = new WebSocket(url);
     this.socket.addEventListener("message", (event) => {
       try { this.receive(JSON.parse(event.data)); }
@@ -143,7 +156,7 @@ export class T3Client {
 
   rpc(tag, payload, onValue) {
     const id = String(++this.nextId);
-    const promise = new Promise((resolve, reject) => {
+    let promise = new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
         this.requests.delete(id);
         reject(new Error(`T3 ${tag} timed out; reuse the same destination ID when retrying.`));
@@ -151,13 +164,29 @@ export class T3Client {
       this.requests.set(id, { resolve, reject, timer, onValue });
       this.socket.send(JSON.stringify({ _tag: "Request", id, tag, payload, headers: [] }));
     });
+    if (this.protocol === 2 && tag === "orchestration.getArchivedShellSnapshot") promise = promise.then(normalizeArchived);
     return { id, promise };
   }
 
+  /** Reads and writes keep their V1 routes and shapes; protocol 2 maps them onto its own. */
   async http(route, body) {
+    if (this.protocol === 2) {
+      if (route === "/api/orchestration/shell" && body === undefined) return normalizeShell(await this.rawHttp(route));
+      if (route === "/api/orchestration/dispatch") return this.dispatchV2(body);
+    }
+    return this.rawHttp(route, body);
+  }
+
+  async dispatchV2(command) {
+    let result = { sequence: 0 };
+    for (const translated of translateCommand(command)) result = await this.rpc("orchestration.dispatchCommand", translated).promise;
+    return result;
+  }
+
+  async rawHttp(route, body) {
     const response = await fetch(this.server + route, {
       method: body === undefined ? "GET" : "POST",
-      headers: { Authorization: `Bearer ${this.token}`, "Content-Type": "application/json" },
+      headers: { Authorization: `Bearer ${this.token}`, "Content-Type": "application/json", ...(this.protocol === 2 ? { [PROTOCOL_HEADER]: "2" } : {}) },
       ...(body === undefined ? {} : { body: JSON.stringify(body) }),
       signal: AbortSignal.timeout(this.timeout),
     });
@@ -166,11 +195,37 @@ export class T3Client {
     return JSON.parse(text);
   }
 
-  async thread(id) { return (await this.http(`/api/orchestration/threads/${encodeURIComponent(id)}`)).thread; }
+  async thread(id) {
+    const detail = await this.rawHttp(`/api/orchestration/threads/${encodeURIComponent(id)}`);
+    return this.protocol === 2 ? normalizeThread(detail) : detail.thread;
+  }
   async dispatch(command) { return this.http("/api/orchestration/dispatch", command); }
-  async fork(input) { return this.rpc("agentSessions.fork", input).promise; }
+  async fork(input) {
+    if (this.protocol !== 2) return this.rpc("agentSessions.fork", input).promise;
+    await this.rpc("orchestration.dispatchCommand", forkCommand(input)).promise;
+    return { threadId: input.threadId };
+  }
+
+  /** Protocol 2 has no per-thread turn log to subscribe to cheaply, so the assignment's run is polled. */
+  async waitForRun(plan, messageId, wait) {
+    const deadline = Date.now() + this.timeout;
+    for (;;) {
+      const thread = await this.thread(plan.threadId);
+      const run = thread.runs.find((r) => r.userMessageId === messageId);
+      if (run?.status === "failed") throw new Error("Provider turn failed.");
+      if (run && ["interrupted", "cancelled"].includes(run.status)) throw new Error("Worker turn was interrupted.");
+      if (run && (run.startedAt || run.status === "completed") && (wait !== "completed" || run.status === "completed")) {
+        requireValue(sameSelection(thread.modelSelection, plan.modelSelection), "Worker started with a different model or effort.");
+        requireValue(run.providerInstanceId === plan.modelSelection.instanceId, "Worker started under a different provider account.");
+        return { threadId: plan.threadId, name: thread.title, provider: plan.provider, model: thread.modelSelection.model, effort: plan.effort, state: run.status === "completed" ? "completed" : "started", turnId: run.id };
+      }
+      if (Date.now() > deadline) throw new Error(`Worker did not reach '${wait}' within ${this.timeout / 1000}s. Reuse destination ${plan.threadId}; its task may already be saved.`);
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+    }
+  }
 
   async waitForTurn(plan, messageId, wait) {
+    if (this.protocol === 2) return this.waitForRun(plan, messageId, wait);
     let subscription;
     let refreshing = false;
     let dirty = false;
@@ -265,6 +320,10 @@ export async function runFork(client, input, emit = () => {}) {
 }
 
 export function usageLimit(thread, now = new Date()) {
+  if (thread.usageLimitResetAt) {
+    const resetsAt = new Date(thread.usageLimitResetAt);
+    return { rateLimitType: null, resetsAt: resetsAt.toISOString(), reportedAt: thread.updatedAt, active: resetsAt > now };
+  }
   const hit = [...(thread.activities ?? [])].reverse().find((a) => Number.isFinite(a.payload?.detail?.resetsAt));
   if (!hit) return null;
   const resetsAt = new Date(hit.payload.detail.resetsAt * 1000);
@@ -340,6 +399,8 @@ async function main() {
     finally { await local.close(); }
     const { peerClient } = await import("./peers.mjs");
     client = peerClient(values.environment, { home: values.home, timeout: Number(values.timeout) }).client;
+    // A V2 link is reached through this computer's server, which resolves the project from this name.
+    if (client.linked) client.projectHint = values.project;
   }
   try {
     await client.connect();

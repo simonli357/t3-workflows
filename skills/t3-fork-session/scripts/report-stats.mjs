@@ -34,13 +34,16 @@ async function main() {
   if (!(hours > 0)) throw new Error("--hours must be a positive number.");
   const home = values.home ?? process.env.T3CODE_HOME ?? settings.connection?.home ?? path.join(homedir(), ".t3");
   const { DatabaseSync } = await import("node:sqlite");
-  const db = new DatabaseSync(path.join(home, "userdata", "state.sqlite"), { readOnly: true });
+  // T3 V2 keeps its state in statev2.sqlite with namespaced projection tables; the worker tables are shared.
+  const v2 = existsSync(path.join(home, "userdata", "statev2.sqlite"));
+  const db = new DatabaseSync(path.join(home, "userdata", v2 ? "statev2.sqlite" : "state.sqlite"), { readOnly: true });
+  const titleTable = v2 ? "orchestration_v2_projection_threads" : "projection_threads";
   try {
     const since = new Date(Date.now() - hours * 3_600_000).toISOString();
     const rows = db.prepare(`SELECT id, worker_id, target_id, kind FROM custom_worker_jobs
       WHERE kind IN ('done', 'blocked', 'notice') AND created_at >= ? AND target_id NOT LIKE 'peer:%'`).all(since);
     const ids = [...new Set(rows.flatMap((row) => [row.worker_id, row.target_id]))];
-    const titles = new Map(ids.length ? db.prepare(`SELECT thread_id, title FROM projection_threads WHERE thread_id IN (${ids.map(() => "?").join(",")})`).all(...ids).map((r) => [r.thread_id, r.title]) : []);
+    const titles = new Map(ids.length ? db.prepare(`SELECT thread_id, title FROM ${titleTable} WHERE thread_id IN (${ids.map(() => "?").join(",")})`).all(...ids).map((r) => [r.thread_id, r.title]) : []);
     const result = summarize(rows, titles, hours);
     if (values.json) { console.log(JSON.stringify({ hours, masters: result }, null, 2)); return; }
     if (!result.length) { console.log(`No worker reports in the last ${hours} h.`); return; }
