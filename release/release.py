@@ -96,15 +96,15 @@ def file_bytes(path):
     return path.stat().st_size if path.is_file() else 0
 
 
-def switchover_disk_plan(db, growth_bytes, build_bytes):
+def switchover_disk_plan(db, growth_bytes, build_bytes, copy_factor=0.75):
     """V1 stays in place, V2 copies it, and rollback needs no extra database copy."""
     v1 = file_bytes(db)
     if v1 == 0:
         raise RuntimeError('V1 database is missing: ' + str(db))
     wal = file_bytes(str(db) + '-wal')
-    # The V2 import is a page-level copy of V1 taken before it is published. It is at most the
-    # V1 file; VACUUM was measured at about 5.8 GiB against 8.6 GB, so the live file is the bound.
-    copy = v1
+    # The importer compacts the copy with VACUUM INTO: 8.6 GB of V1 was 5.8 GiB compacted, so
+    # 0.75 is the default bound. The page-level backup fallback can copy the whole file instead.
+    copy = int(v1 * copy_factor)
     return {'v1Bytes': v1, 'walBytes': wal, 'v2TotalBytes': copy, 'growthBytes': growth_bytes,
             'buildBytes': build_bytes, 'homeRequiredBytes': v1 + wal + copy + growth_bytes}
 
@@ -792,7 +792,7 @@ def switchover_activate(args, built, job, plan):
 def switchover(args, root):
     home = Path(args.home).resolve()
     db = home / 'userdata/state.sqlite'
-    plan = switchover_disk_plan(db, gib(args.disk_growth_gib), gib(args.build_disk_gib))
+    plan = switchover_disk_plan(db, gib(args.disk_growth_gib), gib(args.build_disk_gib), args.disk_copy_factor)
     space = switchover_space(plan, home, root)
     print(json.dumps({'diskPlan': plan, 'space': space}, indent=2), flush=True)
     if not args.skip_disk_check and not all(check['fits'] for check in space):
@@ -908,6 +908,8 @@ def parser():
                    help='WAL and V2 growth kept free beside the live home')
     p.add_argument('--build-disk-gib', type=float, default=3.0,
                    help='Free space the build job needs on its own filesystem')
+    p.add_argument('--disk-copy-factor', type=float, default=0.75,
+                   help='Share of the V1 file the compacted V2 copy is allowed (VACUUM INTO measured at 0.67)')
     p.add_argument('--skip-disk-check', action='store_true',
                    help='Rehearsal only: proceed in a copied home whose sizes are not live-shaped')
     p.add_argument('--native-upgrade', action='store_true',

@@ -107,8 +107,10 @@ class ReleaseTests(unittest.TestCase):
         size = self.db.stat().st_size
         self.assertEqual(plan['v1Bytes'], size)
         self.assertEqual(plan['walBytes'], 11)
-        self.assertEqual(plan['v2TotalBytes'], size)
-        self.assertEqual(plan['homeRequiredBytes'], 2 * size + 11 + 2 * release.GIB)
+        # The V2 copy is compacted, so the plan reserves a fraction of the V1 file for it.
+        self.assertEqual(plan['v2TotalBytes'], int(size * 0.75))
+        self.assertEqual(plan['homeRequiredBytes'], size + int(size * 0.75) + 11 + 2 * release.GIB)
+        self.assertEqual(release.switchover_disk_plan(self.db, 0, 0, 1.0)['v2TotalBytes'], size)
 
     def test_v2_count_checks_use_import_semantics(self):
         destination = self.root / 'statev2.sqlite'
