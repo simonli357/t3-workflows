@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
-"""Build and release the fork on this computer. No live database rollback."""
+"""Build and release the fork on this computer. No live database rollback.
+
+`release switchover` is the one-way V1 -> V2 cutover: it keeps the V1 database untouched next to
+the V2 copy and rolls back by restarting the retained custom runtime, never by restoring a file.
+"""
 import argparse
 from contextlib import contextmanager
 import hashlib
@@ -22,6 +26,9 @@ from repack import repack, read_file
 HERE = Path(__file__).resolve().parent
 WINDOWS = os.name == 'nt'
 STARTUP_SETTLE_SECONDS = 30
+V2_LINE = 'origin/v2/main'
+ORCHESTRATION_PROTOCOL = 2
+GIB = 1024 ** 3
 
 
 def run(args, *, cwd=None, env=None, timeout=300, capture=False):
@@ -80,6 +87,146 @@ def pending_migrations(current, wanted):
     return pending
 
 
+def gib(value):
+    return int(float(value) * GIB)
+
+
+def file_bytes(path):
+    path = Path(path)
+    return path.stat().st_size if path.is_file() else 0
+
+
+def switchover_disk_plan(db, growth_bytes, build_bytes):
+    """V1 stays in place, V2 copies it, and rollback needs no extra database copy."""
+    v1 = file_bytes(db)
+    if v1 == 0:
+        raise RuntimeError('V1 database is missing: ' + str(db))
+    wal = file_bytes(str(db) + '-wal')
+    # The V2 import is a page-level copy of V1 taken before it is published. It is at most the
+    # V1 file; VACUUM was measured at about 5.8 GiB against 8.6 GB, so the live file is the bound.
+    copy = v1
+    return {'v1Bytes': v1, 'walBytes': wal, 'v2TotalBytes': copy, 'growthBytes': growth_bytes,
+            'buildBytes': build_bytes, 'homeRequiredBytes': v1 + wal + copy + growth_bytes}
+
+
+def free_bytes(path):
+    path = Path(path).resolve()
+    while not path.exists():
+        path = path.parent
+    return shutil.disk_usage(path).free
+
+
+def switchover_space(plan, home, job):
+    """The database work happens beside the live home; the build happens in the job."""
+    target = Path(home) / 'userdata'
+    return [{'target': 'home', 'path': str(target), 'freeBytes': free_bytes(target),
+             'requiredBytes': plan['homeRequiredBytes'], 'fits': free_bytes(target) >= plan['homeRequiredBytes']},
+            {'target': 'job', 'path': str(job), 'freeBytes': free_bytes(job),
+             'requiredBytes': plan['buildBytes'], 'fits': free_bytes(job) >= plan['buildBytes']}]
+
+
+# Identity tables must match exactly. Everything else only has to keep every V1 row: a running V2
+# server appends its own messages and worker-job bookkeeping, so equality there proves nothing.
+V2_COUNT_QUERIES = (
+    ('threads', 'SELECT COUNT(*) FROM projection_threads',
+     'SELECT COUNT(*) FROM orchestration_v2_projection_threads', 'exact'),
+    ('projects', 'SELECT COUNT(*) FROM projection_projects', 'SELECT COUNT(*) FROM projection_projects', 'exact'),
+    ('workers', 'SELECT COUNT(*) FROM custom_workers', 'SELECT COUNT(*) FROM custom_workers', 'exact'),
+    ('owners', 'SELECT COUNT(DISTINCT owner_id) FROM custom_workers',
+     'SELECT COUNT(DISTINCT owner_id) FROM custom_workers', 'exact'),
+    ('messages', "SELECT COUNT(*) FROM projection_thread_messages WHERE role IN ('user', 'assistant')",
+     'SELECT COUNT(*) FROM orchestration_v2_projection_messages', 'atLeast'),
+)
+
+CUSTOM_TABLES_SQL = ("SELECT name FROM sqlite_master WHERE type = 'table' AND (name LIKE 'custom\\_%' ESCAPE '\\' "
+                     "OR name IN ('session_workspaces','worker_recommendations') "
+                     "OR name LIKE 'provider\\_allocation\\_%' ESCAPE '\\' "
+                     "OR name LIKE 'model\\_selection\\_%' ESCAPE '\\' "
+                     "OR name LIKE 'base\\_session\\_%' ESCAPE '\\' "
+                     "OR name = 'provider_usage_cap_latches') ORDER BY name")
+
+
+def scalar(db, sql):
+    try:
+        return db.execute(sql).fetchone()[0]
+    except sqlite3.OperationalError:
+        return None
+
+
+def v2_count_checks(source, destination):
+    """Compare V1 rows with what the V2 copy serves, using P1's importer semantics."""
+    checks = []
+    with database(source) as left, database(destination) as right:
+        for name, source_sql, imported_sql, mode in V2_COUNT_QUERIES:
+            before, after = scalar(left, source_sql), scalar(right, imported_sql)
+            checks.append(count_check(name, before, after, mode))
+        for table in [row[0] for row in left.execute(CUSTOM_TABLES_SQL).fetchall()]:
+            if any(check['name'] == table for check in checks):
+                continue
+            quoted = table.replace('"', '""')
+            before = scalar(left, f'SELECT COUNT(*) FROM "{quoted}"')
+            after = scalar(right, f'SELECT COUNT(*) FROM "{quoted}"')
+            checks.append(count_check(table, before, after, 'atLeast'))
+    return checks
+
+
+def count_check(name, before, after, mode='exact'):
+    if before is None or after is None:
+        matches = False
+    elif mode == 'exact':
+        matches = before == after
+    else:
+        matches = after >= before
+    return {'name': name, 'source': before, 'imported': after, 'mode': mode,
+            'delta': None if before is None or after is None else after - before, 'matches': matches}
+
+
+def v2_receipt(home):
+    receipts = sorted((Path(home) / 'userdata/v2-import-receipts').glob('v1-import-*.json'))
+    if not receipts:
+        return None, None
+    return receipts[-1], read(receipts[-1])
+
+
+def wait_v2_import(home, source, seconds, alive=lambda: True):
+    """Lazy transcript import lags the server start; wait on counts, never on a sleep alone."""
+    destination = Path(home) / 'userdata/statev2.sqlite'
+    deadline = time.monotonic() + seconds
+    last = 'statev2.sqlite was not created'
+    while True:
+        if not alive():
+            raise RuntimeError('V2 server exited before the import drained')
+        if destination.exists():
+            try:
+                checks = v2_count_checks(source, destination)
+            except sqlite3.Error as error:
+                last = f'{type(error).__name__}: {error}'
+            else:
+                if all(check['matches'] for check in checks):
+                    return checks
+                last = ', '.join(
+                    f"{check['name']} {check['imported']}/{check['source']}"
+                    for check in checks if not check['matches'])
+        if time.monotonic() >= deadline:
+            raise RuntimeError(f'V2 import did not converge within {seconds:g}s: {last}')
+        time.sleep(min(2, max(0, deadline - time.monotonic())))
+
+
+def prebuilt_runtime(path):
+    """Stage a runtime that a separate build job already produced."""
+    runtime = Path(path).resolve()
+    manifest = runtime / 'package.json'
+    if not (runtime / 't3').is_file() and not (runtime / 't3.exe').is_file():
+        raise RuntimeError('Prebuilt runtime has no t3 launcher: ' + str(runtime))
+    if (runtime / 'client/index.html').is_file() is False:
+        raise RuntimeError('Prebuilt runtime has no web client: ' + str(runtime))
+    data = read(manifest)
+    if not data.get('version') or not data.get('sourceCommit'):
+        raise RuntimeError('Prebuilt runtime package.json needs version and sourceCommit')
+    return {'version': data['version'], 'commit': data['sourceCommit'], 'node': None,
+            'source': None, 'runtime': str(runtime), 'migrations': data.get('migrations', [])}
+
+
 def vacuum(source, target):
     target = Path(target)
     target.parent.mkdir(parents=True, exist_ok=True)
@@ -131,21 +278,24 @@ def host_lock(home):
         yield
 
 
-def node26(option, job):
+def node26(option, job, version='26.8.2'):
+    wanted = 'v' + version
     candidates = [option] if option else [
-        str(Path.home() / '.local/opt/node-v26.8.2-linux-x64/bin/node'),
+        str(Path.home() / f'.local/opt/node-v{version}-linux-x64/bin/node'),
         shutil.which('node')]
     for candidate in candidates:
-        if candidate and Path(candidate).exists() and run([candidate, '--version'], capture=True) == 'v26.8.2':
+        if candidate and Path(candidate).exists() and run([candidate, '--version'], capture=True) == wanted:
             return str(Path(candidate).resolve())
     if option:
-        raise RuntimeError('--node must select Node 26.8.2')
+        raise RuntimeError(f'--node must select Node {version}')
     # Same pinned Node release used by build-exe; install only inside this job.
-    name = 'node-v26.8.2-' + ('win-x64.zip' if WINDOWS else 'linux-x64.tar.xz')
-    base = 'https://nodejs.org/dist/v26.8.2/'
+    name = f'node-v{version}-' + ('win-x64.zip' if WINDOWS else 'linux-x64.tar.xz')
+    base = f'https://nodejs.org/dist/{wanted}/'
     with urllib.request.urlopen(base + 'SHASUMS256.txt', timeout=30) as response:
         checksums = response.read().decode()
-    expected = next(line.split()[0] for line in checksums.splitlines() if line.split()[-1] == name)
+    expected = next((line.split()[0] for line in checksums.splitlines() if line.split()[-1] == name), None)
+    if expected is None:
+        raise RuntimeError('Node release has no ' + name)
     archive = job / name
     with urllib.request.urlopen(base + name, timeout=60) as response, archive.open('wb') as out:
         shutil.copyfileobj(response, out)
@@ -154,18 +304,25 @@ def node26(option, job):
     if WINDOWS:
         with zipfile.ZipFile(archive) as bundle:
             bundle.extractall(job)
-        executable = job / 'node-v26.8.2-win-x64/node.exe'
+        executable = job / f'node-v{version}-win-x64/node.exe'
     else:
         with tarfile.open(archive) as bundle:
             bundle.extractall(job, filter='data')
-        executable = job / 'node-v26.8.2-linux-x64/bin/node'
+        executable = job / f'node-v{version}-linux-x64/bin/node'
     return str(executable)
 
 
+def required_node(source, override=None):
+    """The build-exe step fails closed on the exact Node release the source pins."""
+    if override:
+        return override
+    engine = read(Path(source) / 'package.json').get('engines', {}).get('node', '')
+    match = re.fullmatch(r'\^?~?v?(\d+\.\d+\.\d+)', str(engine).strip())
+    return match.group(1) if match else '26.8.2'
+
+
 def build(args, job):
-    node = node26(args.node, job)
     env = clean_env()
-    env['PATH'] = str(Path(node).parent) + os.pathsep + env['PATH']
     env.update({'TMPDIR': str(job / 'tmp'), 'TMP': str(job / 'tmp'), 'TEMP': str(job / 'tmp'),
                 'XDG_CACHE_HOME': str(job / 'cache'), 'npm_config_cache': str(job / 'cache/npm'),
                 'ELECTRON_CACHE': str(job / 'cache/electron'), 'npm_config_engine_strict': 'false',
@@ -179,12 +336,18 @@ def build(args, job):
     remote = run(['git', '-C', repo, 'remote', 'get-url', 'origin'], capture=True)
     if not re.search(r'[:/]simonli357/t3code(?:\.git)?$', remote):
         raise RuntimeError('Source origin must be simonli357/t3code')
-    run(['git', '-C', repo, 'fetch', 'origin', 'main'])
+    branch = V2_LINE if args.line == 'v2' else 'origin/main'
+    run(['git', '-C', repo, 'fetch', 'origin', branch.split('/', 1)[1]])
     commit = run(['git', '-C', repo, 'rev-parse', '--verify', args.ref + '^{commit}'], capture=True)
-    run(['git', '-C', repo, 'merge-base', '--is-ancestor', commit, 'origin/main'])
+    try:
+        run(['git', '-C', repo, 'merge-base', '--is-ancestor', commit, branch])
+    except subprocess.CalledProcessError as error:
+        raise RuntimeError(f'{args.ref} is not on {branch}; refusing to release an unpushed commit') from error
     source = job / 'source'
-    env['PATH'] = str(source / 'node_modules/.bin') + os.pathsep + env['PATH']
     run(['git', '-C', repo, 'worktree', 'add', '--detach', source, commit])
+    # The single-executable step fails closed on the exact Node release the source pins.
+    node = node26(args.node, job, required_node(source, args.node_version))
+    env['PATH'] = os.pathsep.join([str(Path(node).parent), str(source / 'node_modules/.bin'), env['PATH']])
     # A release version must identify its source even when main still says custom.52.
     base_version = read(source / 'apps/server/package.json')['version']
     version = base_version + ('.git.' if '+' in base_version else '+git.') + commit[:12]
@@ -222,14 +385,28 @@ def build(args, job):
     else:
         active = read(Path(args.home) / 'runtime/service-state.json')['activeVersion']
         previous = Path(args.home) / 'runtime/versions' / active
-        for name, expected in native.items():
-            if read(previous / 'node_modules' / name / 'package.json')['version'] != expected:
-                raise RuntimeError('Native dependency changed; prepare native sidecars first: ' + name)
         for name in ['node_modules', 'resource-monitor']:
             shutil.copytree(previous / name, runtime / name)
+        for name, expected in native.items():
+            installed = runtime / 'node_modules' / name / 'package.json'
+            if installed.is_file() and read(installed).get('version') == expected:
+                continue
+            if not args.native_upgrade:
+                raise RuntimeError('Native dependency changed; prepare native sidecars first: ' + name)
+            # The built source tree resolves the exact closure; the staging copy is disposable.
+            replacement = source / 'node_modules' / name
+            if not replacement.exists():
+                raise RuntimeError('Built native dependency is missing: ' + str(replacement))
+            target = runtime / 'node_modules' / name
+            if target.exists():
+                shutil.rmtree(target)
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copytree(replacement, target, symlinks=False)
         shutil.copy2(source / 'apps/server/dist-exe/t3', runtime / 't3')
     shutil.copytree(source / 'apps/server/dist/client', runtime / 'client')
-    save(runtime / 'package.json', {'name': 't3', 'version': version, 'sourceCommit': commit})
+    save(runtime / 'package.json', {'name': 't3', 'version': version, 'sourceCommit': commit,
+                                    'line': args.line, 'protocol': ORCHESTRATION_PROTOCOL if args.line == 'v2' else 1,
+                                    'migrations': manifest})
     cli = [node, source / 'apps/server/dist/bin.mjs'] if WINDOWS else [runtime / 't3']
     help_text = run([*cli, 'connect', '--help'], env=clean_env(), capture=True)
     if 'login' not in help_text or 'unavailable' in help_text:
@@ -266,7 +443,7 @@ def descriptor(port, timeout=5):
         return json.load(response)
 
 
-def health(port, version, seconds, stall_ms, logs, alive=lambda: True, ready_seconds=900):
+def health(port, version, seconds, stall_ms, logs, alive=lambda: True, ready_seconds=900, protocol=None):
     def probe():
         started = time.monotonic()
         if not alive():
@@ -274,6 +451,8 @@ def health(port, version, seconds, stall_ms, logs, alive=lambda: True, ready_sec
         observed = descriptor(port, stall_ms / 1000)
         if observed.get('serverVersion') != version:
             raise RuntimeError('Server version mismatch: ' + str(observed.get('serverVersion')))
+        if protocol is not None and (observed.get('orchestrationProtocolVersion') or 1) != protocol:
+            raise RuntimeError('Server protocol mismatch: ' + str(observed.get('orchestrationProtocolVersion')))
         with urllib.request.urlopen(f'http://127.0.0.1:{port}/', timeout=stall_ms / 1000) as response:
             if response.status != 200:
                 raise RuntimeError('Web client did not answer')
@@ -513,6 +692,189 @@ def activate(args, built, job, rehearsal):
             controller.stop()
 
 
+def switchover_activate(args, built, job, plan):
+    """V1 stays; V2 copies it; rollback restarts the retained runtime and never restores a file."""
+    home = Path(args.home).resolve()
+    db = home / 'userdata/state.sqlite'
+    destination = home / 'userdata/statev2.sqlite'
+    if destination.exists():
+        raise RuntimeError('V2 state already exists at ' + str(destination) +
+                           '; it may hold newer data. Inspect it instead of importing over it.')
+    state = home / 'runtime/service-state.json'
+    previous_state = read(state) if state.exists() else None
+    if previous_state is not None and (previous_state.get('protocol') != 3 or previous_state.get('update')):
+        raise RuntimeError('Launcher protocol differs or a launcher update is pending')
+    if args.isolated and previous_state is None:
+        raise RuntimeError('Isolated switchover needs runtime/service-state.json naming the retained version')
+    previous_version = descriptor(args.port)['serverVersion'] if not args.isolated else previous_state['activeVersion']
+    if previous_state is not None and previous_state['activeVersion'] != previous_version:
+        raise RuntimeError('Running version differs from launcher selection; finish the existing release first')
+    previous = home / 'runtime/versions' / previous_version
+    if not previous.is_dir():
+        raise RuntimeError('Retained custom runtime is missing: ' + str(previous))
+    controller = (Isolated(home, job, args.port) if args.isolated
+                  else Windows(home, job, args.port, args.desktop) if WINDOWS
+                  else Linux(home, job, args.port))
+    if not args.isolated:
+        controller.inspect()
+    target = home / 'runtime/versions' / built['version']
+    if target.exists():
+        raise RuntimeError('Version already installed; refusing to overwrite: ' + str(target))
+    if WINDOWS and not args.isolated:
+        target = controller.prepare(built)
+        previous = controller.previous
+    else:
+        shutil.copytree(built['runtime'], target)
+    (target / '.install-complete').write_text(built['version'] + '\n')
+    marker = home / 'runtime/t3w-deploy/switchover-in-progress.json'
+    save(marker, {'job': str(job), 'version': built['version'], 'previousVersion': previous_version,
+                  'statev2': str(destination)})
+    logs = {p: p.stat().st_size for p in (home / 'userdata/logs').glob('**/*.log')}
+    logs[controller.log] = controller.log.stat().st_size if controller.log.exists() else 0
+    before = fingerprint(db)
+    try:
+        controller.stop()
+        # Nothing may touch the V1 file between the stop and the V2 import.
+        if fingerprint(db) != before:
+            raise RuntimeError('V1 ledger or schema changed while stopping the server')
+        controller.start(target)
+        result = health(args.port, built['version'], args.health_seconds, args.stall_ms, logs,
+                        controller.alive, args.ready_seconds, ORCHESTRATION_PROTOCOL)
+        receipt_path, receipt = v2_receipt(home)
+        if receipt is None:
+            raise RuntimeError('V2 started without writing an import receipt')
+        expected_ledger = [f'{i}:{name}' for i, name in before['migrations']]
+        if receipt['snapshot']['ledger'] != expected_ledger:
+            raise RuntimeError('Import receipt ledger differs from the V1 ledger that was stopped')
+        if receipt['source']['path'] != str(db):
+            raise RuntimeError('Import receipt names a different V1 database: ' + receipt['source']['path'])
+        counts = wait_v2_import(home, db, args.import_seconds, controller.alive)
+        if fingerprint(db) != before:
+            raise RuntimeError('V2 modified the V1 database; refusing to record a healthy switchover')
+        if previous_state is not None:
+            save(state, {'protocol': 3, 'activeVersion': built['version']})
+        # Durable cutover record: rollback needs the retained version and the V1 fingerprint.
+        save(home / 'runtime/t3w-deploy/switchover.json',
+             {'version': built['version'], 'previousVersion': previous_version, 'v1': before,
+              'v1Path': str(db), 'statev2': str(destination), 'receipt': str(receipt_path),
+              'switchedAt': time.strftime('%Y-%m-%dT%H:%M:%S%z')})
+        marker.unlink()
+        return {'status': 'healthy', 'line': 'v2', 'health': result, 'counts': counts,
+                'receipt': str(receipt_path), 'statev2': str(destination),
+                'rollback': {'version': previous_version, 'runtime': str(previous),
+                             'restore': 'restart the retained runtime; V1 is never rewritten',
+                             'note': 'V2-only writes stay in statev2.sqlite and do not return to V1'}}
+    except Exception as error:
+        try:
+            controller.stop()
+            # V1 is the rollback point and must still be byte-for-byte the file V2 imported from.
+            if fingerprint(db) != before:
+                raise RuntimeError('V1 ledger or schema changed; do not restore over it. Server is stopped. '
+                                   'Inspect statev2.sqlite and the V1 database. ' + str(error)) from error
+            if previous_state is not None:
+                save(state, previous_state)
+            controller.start(previous)
+            health(args.port, previous_version, min(args.health_seconds, 10), args.stall_ms, {},
+                   controller.alive, args.ready_seconds)
+            kept = destination.exists()
+            marker.unlink()
+            raise RuntimeError('Switchover failed; rolled back to ' + previous_version + ' with an untouched V1 '
+                               'database. ' + ('statev2.sqlite is retained for inspection; V2-only writes stay '
+                                              'in it and are not restored to V1. ' if kept else '') + str(error)) from error
+        finally:
+            if args.isolated:
+                controller.stop()
+    finally:
+        if args.isolated:
+            controller.stop()
+
+
+def switchover(args, root):
+    home = Path(args.home).resolve()
+    db = home / 'userdata/state.sqlite'
+    plan = switchover_disk_plan(db, gib(args.disk_growth_gib), gib(args.build_disk_gib))
+    space = switchover_space(plan, home, root)
+    print(json.dumps({'diskPlan': plan, 'space': space}, indent=2), flush=True)
+    if not args.skip_disk_check and not all(check['fits'] for check in space):
+        short = [f"{check['target']} needs {check['requiredBytes'] / GIB:.1f} GiB, "
+                 f"has {check['freeBytes'] / GIB:.1f} GiB" for check in space if not check['fits']]
+        raise RuntimeError('Switchover preflight failed; no service was stopped: ' + '; '.join(short))
+    job = root / ('switchover-' + time.strftime('%Y%m%d-%H%M%S') + '-' + uuid.uuid4().hex[:6])
+    job.mkdir(mode=0o700)
+    save(job / 'preflight.json', {'diskPlan': plan, 'space': space})
+    print('Switchover work and result: ' + str(job), flush=True)
+    with host_lock(home):
+        built = prebuilt_runtime(args.prebuilt_runtime) if args.prebuilt_runtime else build(args, job)
+        if built.get('line') not in (None, 'v2'):
+            raise RuntimeError('Switchover base must be the V2 line, not ' + str(built.get('line')))
+        if args.prebuilt_runtime is None:
+            built['line'] = 'v2'
+        save(job / 'build.json', built)
+        try:
+            result = switchover_activate(args, built, job, plan)
+        except Exception as error:
+            save(job / 'result.json', {'status': 'failed', 'error': str(error), 'build': built})
+            raise
+        save(job / 'result.json', {**result, 'build': built})
+        print(f"Switched to {built['version']}; {len(result['counts'])} count checks match. "
+              f"Result: {job / 'result.json'}", flush=True)
+
+
+def switchover_rollback(args, root):
+    """Restart the retained custom runtime. V2 writes stay in statev2; no file is restored."""
+    home = Path(args.home).resolve()
+    record_path = home / 'runtime/t3w-deploy/switchover.json'
+    if not record_path.exists():
+        raise RuntimeError('No switchover record at ' + str(record_path) + '; refusing to guess a rollback target')
+    record = read(record_path)
+    db = home / 'userdata/state.sqlite'
+    if str(db) != record.get('v1Path'):
+        raise RuntimeError('Switchover record names a different V1 database')
+    state = home / 'runtime/service-state.json'
+    previous_state = read(state) if state.exists() else None
+    if previous_state is None or previous_state.get('activeVersion') != record['version']:
+        raise RuntimeError('Launcher is not running the switched V2 version; finish or inspect that release first')
+    previous = home / 'runtime/versions' / record['previousVersion']
+    if not previous.is_dir():
+        raise RuntimeError('Retained custom runtime is missing: ' + str(previous))
+    controller = (Isolated(home, root, args.port) if args.isolated
+                  else Windows(home, root, args.port, args.desktop) if WINDOWS
+                  else Linux(home, root, args.port))
+    if not args.isolated:
+        controller.inspect()
+    current = fingerprint(db)
+    if current != record['v1']:
+        raise RuntimeError('V1 database changed since the switchover; do not restart over it. '
+                           'Inspect statev2.sqlite and the V1 file before rolling back.')
+    job = root / ('rollback-' + time.strftime('%Y%m%d-%H%M%S') + '-' + uuid.uuid4().hex[:6])
+    job.mkdir(mode=0o700)
+    controller.stop()
+    if fingerprint(db) != record['v1']:
+        raise RuntimeError('V1 database changed while stopping V2; server is stopped')
+    save(state, {'protocol': 3, 'activeVersion': record['previousVersion']})
+    controller.start(previous)
+    try:
+        result = health(args.port, record['previousVersion'], args.health_seconds, args.stall_ms, {},
+                        controller.alive, args.ready_seconds, 1)
+    except Exception as error:
+        save(job / 'result.json', {'status': 'failed', 'error': str(error), 'record': record})
+        raise RuntimeError('Retained runtime did not become healthy: ' + str(error)) from error
+    finally:
+        if args.isolated:
+            controller.stop()
+    statev2 = Path(record['statev2'])
+    result = {'status': 'rolled-back', 'activeVersion': record['previousVersion'], 'health': result,
+              'statev2': str(statev2), 'statev2Present': statev2.exists(),
+              'statev2Bytes': file_bytes(statev2),
+              'v2WritesRetained': 'V2-only threads, messages and workers remain in statev2.sqlite '
+                                  'and are not written back to V1'}
+    save(job / 'result.json', result)
+    record['rolledBackAt'] = time.strftime('%Y-%m-%dT%H:%M:%S%z')
+    save(record_path, record)
+    print(json.dumps(result, indent=2), flush=True)
+    return result
+
+
 def default_repo():
     conventional = Path.home() / 't3code-custom'
     config = Path.home() / '.config/workenv/windows-jobs.json'
@@ -526,16 +888,34 @@ def default_repo():
 
 def parser():
     p = argparse.ArgumentParser(description='Build fork main, rehearse migrations, activate locally and check health.')
-    p.add_argument('--ref', default='origin/main')
+    p.add_argument('mode', nargs='?', choices=['release', 'switchover'], default='release',
+                   help='release: custom line; switchover: one-way V1 -> V2 cutover for this host')
+    p.add_argument('--ref', default=None, help='Commit to release; defaults to origin/main or origin/v2/main')
+    p.add_argument('--line', choices=['custom', 'v2'], default='custom')
     p.add_argument('--repo', default=default_repo())
     p.add_argument('--home', default=str(Path.home() / '.t3'))
     p.add_argument('--job', default=os.environ.get('T3_WORKSPACE_JOB_ROOT'))
     p.add_argument('--node', help='Node 26.8.2 executable')
+    p.add_argument('--node-version', help='Override the Node release the source pins')
     p.add_argument('--port', type=int, default=3773)
     p.add_argument('--migration-seconds', type=float, default=60)
+    p.add_argument('--import-seconds', type=float, default=1800,
+                   help='Budget for the lazy V1 transcript import to reach matching counts')
     p.add_argument('--ready-seconds', type=float, default=900, help='Startup budget including 30 seconds of responsive descriptor and web probes')
     p.add_argument('--health-seconds', type=float, default=120)
     p.add_argument('--stall-ms', type=float, default=2000)
+    p.add_argument('--disk-growth-gib', type=float, default=2.0,
+                   help='WAL and V2 growth kept free beside the live home')
+    p.add_argument('--build-disk-gib', type=float, default=3.0,
+                   help='Free space the build job needs on its own filesystem')
+    p.add_argument('--skip-disk-check', action='store_true',
+                   help='Rehearsal only: proceed in a copied home whose sizes are not live-shaped')
+    p.add_argument('--native-upgrade', action='store_true',
+                   help='Allow the V2 build to replace changed native sidecars in the staging copy')
+    p.add_argument('--prebuilt-runtime',
+                   help='Stage an already-built runtime directory instead of building (switchover only)')
+    p.add_argument('--rollback', action='store_true',
+                   help='Switchover only: restart the retained custom runtime; V2 writes stay in statev2')
     p.add_argument('--desktop', default=str(Path(os.environ.get('LOCALAPPDATA', str(Path.home()))) / 'Programs/t3code/T3 Code (Alpha).exe'))
     p.add_argument('--dry-run', action='store_true', help='Print real-host steps; no build/install/restart')
     p.add_argument('--isolated', action='store_true', help='Use only an existing copied home under --job; stop owned test process on exit')
@@ -545,12 +925,48 @@ def parser():
 
 def main(argv=None):
     args = parser().parse_args(argv)
-    if min(args.migration_seconds, args.ready_seconds, args.health_seconds, args.stall_ms) <= 0 or not 1024 <= args.port <= 65535:
+    args.ref = args.ref or (V2_LINE if args.line == 'v2' else 'origin/main')
+    if args.mode == 'switchover' and args.line != 'v2':
+        args.line = 'v2'
+        args.ref = args.ref if args.ref != 'origin/main' else V2_LINE
+    if args.prebuilt_runtime and args.mode != 'switchover':
+        raise RuntimeError('--prebuilt-runtime only applies to switchover')
+    if args.rollback and args.mode != 'switchover':
+        raise RuntimeError('--rollback only applies to switchover')
+    thresholds = [args.migration_seconds, args.ready_seconds, args.health_seconds, args.stall_ms]
+    if args.mode == 'switchover':
+        thresholds.append(args.import_seconds)
+    if min(thresholds) <= 0 or not 1024 <= args.port <= 65535:
         raise RuntimeError('Thresholds must be positive; port must be 1024..65535')
     if sys.platform not in ['linux', 'win32'] or platform.machine().lower() not in ['x86_64', 'amd64']:
         raise RuntimeError('This release command supports the existing Linux x64 and Windows x64 installs')
     home = Path(args.home).resolve()
     if args.dry_run:
+        if args.mode == 'switchover':
+            if args.rollback:
+                print(json.dumps({'command': 't3w release switchover --rollback', 'home': str(home),
+                    'steps': ['read runtime/t3w-deploy/switchover.json for the retained version and V1 fingerprint',
+                              'refuse when the V1 ledger or schema moved or the launcher is not on V2',
+                              'stop only the known service/processes; never restore or delete a database',
+                              'select the retained custom runtime, start it and require protocol 1 plus HTTP health',
+                              'record that V2-only writes stay in statev2.sqlite and are not returned to V1']}, indent=2))
+                check_claim(home)
+                return
+            print(json.dumps({'command': 't3w release switchover', 'ref': args.ref, 'home': str(home),
+                'steps': ['measure V1 file + WAL + the V2 copy + growth, and the build job on its own filesystem',
+                          'refuse when either filesystem is short; stop nothing until the build exists',
+                          'build v2/main (or stage --prebuilt-runtime) and pin its commit',
+                          'lock runtime/t3w-deploy/host.lock; refuse unfinished deployment claims',
+                          'record V1 ledger and schema; stop t3code.service then app-t3code-agents.slice',
+                          'refuse if the V1 ledger or schema moved while stopping',
+                          'start V2; V2 writes statev2.sqlite and an import receipt beside the untouched V1 file',
+                          f'check protocol {ORCHESTRATION_PROTOCOL}, exact version, HTTP and web client; wait up to {args.import_seconds:g}s for counts',
+                          'compare threads, messages, projects, workers, owners and custom tables with V1',
+                          'on failure: stop V2, prove V1 is unchanged, restart the retained custom runtime',
+                          'never restore over V1 or delete statev2: post-cutover V2 writes stay there'],
+                'windows': 'In signed-in desktop PowerShell: node "$HOME\\t3-workflows\\bin\\t3w.mjs" release switchover'}, indent=2))
+            check_claim(home)
+            return
         print(json.dumps({'command': 't3w release', 'ref': args.ref, 'home': str(home),
             'steps': ['fetch fork main; pin commit; build web/server/build-exe with Node 26.8.2',
                       f'VACUUM INTO job copy if migrations pending; refuse failure or >{args.migration_seconds}s; delete copy',
@@ -594,6 +1010,13 @@ def main(argv=None):
         return
     if WINDOWS and not args.isolated:
         run(['powershell.exe', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', HERE / 'windows.ps1', '-Action', 'interactive'])
+    if args.mode == 'switchover':
+        if args.rollback:
+            if args.isolated and args.port == 3773:
+                raise RuntimeError('Use a separate port for --isolated')
+            os.makedirs(home / 'runtime/t3w-deploy', exist_ok=True)
+            return switchover_rollback(args, root)
+        return switchover(args, root)
     job = root / ('release-' + time.strftime('%Y%m%d-%H%M%S') + '-' + uuid.uuid4().hex[:6])
     job.mkdir(mode=0o700)
     print('Release work and result: ' + str(job), flush=True)

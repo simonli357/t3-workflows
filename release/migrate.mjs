@@ -6,9 +6,9 @@ import { selectCliRuntimeExternalDependencies } from '../scripts/lib/cli-externa
 import * as Effect from 'effect/Effect';
 import * as Layer from 'effect/Layer';
 import * as NodeServices from '@effect/platform-node/NodeServices';
-import { migrationManifest } from '../apps/server/src/persistence/Migrations.ts';
-import { makeSqlitePersistenceLive } from '../apps/server/src/persistence/Layers/Sqlite.ts';
 if (process.argv[2] === '--manifest') {
+  // Imported lazily: a V2 tree keeps the same ledger module but not the V1 sqlite layer.
+  const { migrationManifest } = await import('../apps/server/src/persistence/Migrations.ts');
   console.log(JSON.stringify([...migrationManifest].sort((a, b) => a[0] - b[0])));
 } else if (process.argv[2] === '--native') {
   const versions = {};
@@ -24,5 +24,6 @@ if (process.argv[2] === '--manifest') {
   }
   console.log(JSON.stringify(versions));
 } else {
+  const { makeSqlitePersistenceLive } = await import('../apps/server/src/persistence/Layers/Sqlite.ts');
   await Effect.runPromise(Effect.scoped(Layer.build(makeSqlitePersistenceLive(process.argv[2]))).pipe(Effect.provide(NodeServices.layer)));
 }

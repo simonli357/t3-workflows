@@ -19,7 +19,13 @@ class ReleaseTests(unittest.TestCase):
         with closing(sqlite3.connect(self.db)) as db, db:
             db.executescript('CREATE TABLE effect_sql_migrations(migration_id INTEGER, name TEXT);'
                              "INSERT INTO effect_sql_migrations VALUES(1,'First'); CREATE TABLE history(message TEXT);"
-                             "INSERT INTO history VALUES('keep me');")
+                             "INSERT INTO history VALUES('keep me');"
+                             'CREATE TABLE projection_threads(id TEXT); INSERT INTO projection_threads VALUES("t1");'
+                             'CREATE TABLE projection_thread_messages(role TEXT);'
+                             "INSERT INTO projection_thread_messages VALUES('user'),('assistant'),('system');"
+                             'CREATE TABLE projection_projects(id TEXT); INSERT INTO projection_projects VALUES("p1");'
+                             'CREATE TABLE custom_workers(id TEXT, owner_id TEXT);'
+                             'INSERT INTO custom_workers VALUES("w1","o1"),("w2","o1");')
 
     def tearDown(self):
         self.temporary.cleanup()
@@ -77,6 +83,198 @@ class ReleaseTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, 'unfinished'):
             with release.host_lock(self.root):
                 self.fail('entered lock')
+
+    def switchover_home(self):
+        home = self.root / 'home'
+        (home / 'userdata').mkdir(parents=True)
+        import shutil
+        shutil.copy2(self.db, home / 'userdata/state.sqlite')
+        release.save(home / 'runtime/service-state.json', {'protocol': 3, 'activeVersion': 'custom'})
+        (home / 'runtime/versions/custom').mkdir(parents=True)
+        (home / 'runtime/versions/custom/t3').write_text('custom')
+        payload = home / 'payload'
+        payload.mkdir()
+        (payload / 't3').write_text('v2')
+        (payload / 'client').mkdir()
+        (payload / 'client/index.html').write_text('v2 client')
+        release.save(payload / 'package.json', {'version': '0.1.5+git.payload', 'sourceCommit': 'payload',
+                                                'line': 'v2', 'protocol': 2})
+        return home, payload
+
+    def test_switchover_plan_covers_v1_wal_copy_and_growth(self):
+        (self.root / 'state.sqlite-wal').write_bytes(b'x' * 11)
+        plan = release.switchover_disk_plan(self.db, 2 * release.GIB, 3 * release.GIB)
+        size = self.db.stat().st_size
+        self.assertEqual(plan['v1Bytes'], size)
+        self.assertEqual(plan['walBytes'], 11)
+        self.assertEqual(plan['v2TotalBytes'], size)
+        self.assertEqual(plan['homeRequiredBytes'], 2 * size + 11 + 2 * release.GIB)
+
+    def test_v2_count_checks_use_import_semantics(self):
+        destination = self.root / 'statev2.sqlite'
+        with closing(sqlite3.connect(destination)) as db, db:
+            db.executescript('CREATE TABLE orchestration_v2_projection_threads(id TEXT);'
+                             'INSERT INTO orchestration_v2_projection_threads VALUES("t1");'
+                             'CREATE TABLE orchestration_v2_projection_messages(id TEXT);'
+                             'INSERT INTO orchestration_v2_projection_messages VALUES("m1"),("m2");'
+                             'CREATE TABLE projection_projects(id TEXT); INSERT INTO projection_projects VALUES("p1");'
+                             'CREATE TABLE custom_workers(id TEXT, owner_id TEXT);'
+                             'INSERT INTO custom_workers VALUES("w1","o1"),("w2","o1");')
+        checks = {check['name']: check for check in release.v2_count_checks(self.db, destination)}
+        self.assertTrue(all(check['matches'] for check in checks.values()), checks)
+        self.assertEqual((checks['messages']['source'], checks['messages']['imported']), (2, 2))
+        self.assertEqual((checks['workers']['source'], checks['owners']['source']), (2, 1))
+
+    def test_prebuilt_runtime_needs_launcher_client_and_pinned_source(self):
+        runtime = self.root / 'built'
+        (runtime / 'client').mkdir(parents=True)
+        (runtime / 't3').write_text('launcher')
+        release.save(runtime / 'package.json', {'version': '0.1.5+git.abc', 'sourceCommit': 'abc'})
+        with self.assertRaisesRegex(RuntimeError, 'web client'):
+            release.prebuilt_runtime(runtime)
+        (runtime / 'client/index.html').write_text('client')
+        built = release.prebuilt_runtime(runtime)
+        self.assertEqual((built['version'], built['commit']), ('0.1.5+git.abc', 'abc'))
+
+    def test_switchover_refuses_to_import_over_existing_v2_state(self):
+        home, payload = self.switchover_home()
+        (home / 'userdata/statev2.sqlite').write_bytes(b'newer V2 writes')
+        args = release.parser().parse_args(['switchover', '--isolated', '--home', str(home), '--port', '49000'])
+        with self.assertRaisesRegex(RuntimeError, 'may hold newer data'):
+            release.switchover_activate(args, release.prebuilt_runtime(payload), home, {})
+        self.assertEqual((home / 'userdata/statev2.sqlite').read_bytes(), b'newer V2 writes')
+
+    def test_failed_switchover_restarts_custom_and_keeps_statev2(self):
+        home, payload = self.switchover_home()
+        job = self.root / 'job'; job.mkdir()
+        args = release.parser().parse_args(['switchover', '--isolated', '--home', str(home), '--port', '49000'])
+        built = release.prebuilt_runtime(payload)
+        built['version'] = '0.1.5+git.abc'
+        db = home / 'userdata/state.sqlite'
+        starts = []
+
+        class Server:
+            def __init__(self, *arguments):
+                self.log = home / 'userdata/logs/boot.log'
+
+            def stop(self): pass
+
+            def alive(self): return True
+
+            def start(self, runtime):
+                starts.append(Path(runtime).name)
+                if Path(runtime).name != 'custom':
+                    import shutil
+                    statev2 = home / 'userdata/statev2.sqlite'
+                    shutil.copy2(db, statev2)
+                    with closing(sqlite3.connect(statev2)) as copy, copy:
+                        copy.executescript(
+                            'CREATE TABLE orchestration_v2_projection_threads(id TEXT);'
+                            'INSERT INTO orchestration_v2_projection_threads VALUES("t1");'
+                            'CREATE TABLE orchestration_v2_projection_messages(id TEXT);'
+                            'INSERT INTO orchestration_v2_projection_messages VALUES("m1"),("m2");')
+                    release.save(home / 'userdata/v2-import-receipts/v1-import-once.json',
+                                 {'snapshot': {'ledger': ['1:First']}, 'source': {'path': str(db)}})
+
+        with patch.object(release, 'Isolated', Server), patch.object(
+                release, 'health', side_effect=[RuntimeError('v2 web client did not answer'), {}]) as health:
+            with self.assertRaisesRegex(RuntimeError, 'rolled back to custom.*statev2.sqlite is retained'):
+                release.switchover_activate(args, built, job, {})
+        self.assertEqual(starts, ['0.1.5+git.abc', 'custom'])
+        self.assertEqual(release.read(home / 'runtime/service-state.json')['activeVersion'], 'custom')
+        self.assertTrue((home / 'userdata/statev2.sqlite').exists())
+        self.assertFalse((home / 'runtime/t3w-deploy/switchover-in-progress.json').exists())
+        self.assertEqual(release.ledger(db), [[1, 'First']])
+        self.assertEqual(health.call_args_list[-1].args[1], 'custom')
+
+    def test_switchover_reports_counts_and_keeps_retained_custom_runtime(self):
+        home, payload = self.switchover_home()
+        job = self.root / 'job'; job.mkdir()
+        args = release.parser().parse_args(['switchover', '--isolated', '--home', str(home), '--port', '49000'])
+        built = release.prebuilt_runtime(payload)
+        built['version'] = '0.1.5+git.abc'
+        db = home / 'userdata/state.sqlite'
+
+        class Server:
+            def __init__(self, *arguments):
+                self.log = home / 'userdata/logs/boot.log'
+
+            def stop(self): pass
+
+            def alive(self): return True
+
+            def start(self, runtime):
+                if Path(runtime).name != 'custom':
+                    import shutil
+                    statev2 = home / 'userdata/statev2.sqlite'
+                    shutil.copy2(db, statev2)
+                    with closing(sqlite3.connect(statev2)) as copy, copy:
+                        copy.executescript(
+                            'CREATE TABLE orchestration_v2_projection_threads(id TEXT);'
+                            'INSERT INTO orchestration_v2_projection_threads VALUES("t1");'
+                            'CREATE TABLE orchestration_v2_projection_messages(id TEXT);'
+                            'INSERT INTO orchestration_v2_projection_messages VALUES("m1"),("m2");')
+                    release.save(home / 'userdata/v2-import-receipts/v1-import-once.json',
+                                 {'snapshot': {'ledger': ['1:First']}, 'source': {'path': str(db)}})
+
+        with patch.object(release, 'Isolated', Server), patch.object(release, 'health', return_value={}):
+            result = release.switchover_activate(args, built, job, {})
+        self.assertEqual(result['status'], 'healthy')
+        self.assertTrue(all(check['matches'] for check in result['counts']))
+        self.assertEqual(release.read(home / 'runtime/service-state.json')['activeVersion'], '0.1.5+git.abc')
+        self.assertTrue((home / 'runtime/versions/custom/t3').is_file())
+        self.assertIn('statev2.sqlite', result['rollback']['note'])
+
+    def test_rollback_restarts_custom_keeps_statev2_and_refuses_moved_v1(self):
+        home, payload = self.switchover_home()
+        job = self.root / 'job'; job.mkdir()
+        args = release.parser().parse_args(['switchover', '--isolated', '--home', str(home), '--port', '49000'])
+        built = release.prebuilt_runtime(payload)
+        built['version'] = '0.1.5+git.abc'
+        db = home / 'userdata/state.sqlite'
+        starts = []
+
+        class Server:
+            def __init__(self, *arguments):
+                self.log = home / 'userdata/logs/boot.log'
+
+            def stop(self): pass
+
+            def alive(self): return True
+
+            def start(self, runtime):
+                starts.append(Path(runtime).name)
+                if Path(runtime).name != 'custom':
+                    import shutil
+                    statev2 = home / 'userdata/statev2.sqlite'
+                    shutil.copy2(db, statev2)
+                    with closing(sqlite3.connect(statev2)) as copy, copy:
+                        copy.executescript(
+                            'CREATE TABLE orchestration_v2_projection_threads(id TEXT);'
+                            'INSERT INTO orchestration_v2_projection_threads VALUES("t1");'
+                            'CREATE TABLE orchestration_v2_projection_messages(id TEXT);'
+                            'INSERT INTO orchestration_v2_projection_messages VALUES("m1"),("m2");')
+                    release.save(home / 'userdata/v2-import-receipts/v1-import-once.json',
+                                 {'snapshot': {'ledger': ['1:First']}, 'source': {'path': str(db)}})
+
+        with patch.object(release, 'Isolated', Server), patch.object(release, 'health', return_value={}) as health:
+            release.switchover_activate(args, built, job, {})
+            rollback = release.parser().parse_args(
+                ['switchover', '--rollback', '--isolated', '--home', str(home), '--port', '49000'])
+            result = release.switchover_rollback(rollback, job)
+        self.assertEqual(result['status'], 'rolled-back')
+        self.assertEqual(release.read(home / 'runtime/service-state.json')['activeVersion'], 'custom')
+        self.assertEqual(starts, ['0.1.5+git.abc', 'custom'])
+        self.assertTrue(result['statev2Present'])
+        self.assertIn('not written back to V1', result['v2WritesRetained'])
+        self.assertEqual(health.call_args_list[-1].args[7], 1)
+
+        # Pretend the host is on V2 again; only the V1 fingerprint check may stop the rollback.
+        release.save(home / 'runtime/service-state.json', {'protocol': 3, 'activeVersion': '0.1.5+git.abc'})
+        with self.assertRaisesRegex(RuntimeError, 'V1 database changed since the switchover'):
+            with closing(sqlite3.connect(db)) as raw, raw:
+                raw.execute('CREATE TABLE newer_v1(value TEXT)')
+            release.switchover_rollback(rollback, job)
 
     def test_wrong_version_and_stall_are_unhealthy(self):
         with patch.object(release, 'descriptor', return_value={'serverVersion': 'wrong'}):
