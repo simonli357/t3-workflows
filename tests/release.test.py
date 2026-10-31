@@ -206,6 +206,9 @@ class ReleaseTests(unittest.TestCase):
             def alive(self): return True
 
             def start(self, runtime):
+                # The service launcher runs whatever service-state.json selects.
+                selected = release.read(home / 'runtime/service-state.json')['activeVersion']
+                assert selected == Path(runtime).name, (selected, runtime)
                 if Path(runtime).name != 'custom':
                     import shutil
                     statev2 = home / 'userdata/statev2.sqlite'

@@ -737,6 +737,9 @@ def switchover_activate(args, built, job, plan):
         # Nothing may touch the V1 file between the stop and the V2 import.
         if fingerprint(db) != before:
             raise RuntimeError('V1 ledger or schema changed while stopping the server')
+        if previous_state is not None:
+            # The service launcher starts the version named here; rollback restores the previous selection.
+            save(state, {'protocol': 3, 'activeVersion': built['version']})
         controller.start(target)
         result = health(args.port, built['version'], args.health_seconds, args.stall_ms, logs,
                         controller.alive, args.ready_seconds, ORCHESTRATION_PROTOCOL)
@@ -751,8 +754,6 @@ def switchover_activate(args, built, job, plan):
         counts = wait_v2_import(home, db, args.import_seconds, controller.alive)
         if fingerprint(db) != before:
             raise RuntimeError('V2 modified the V1 database; refusing to record a healthy switchover')
-        if previous_state is not None:
-            save(state, {'protocol': 3, 'activeVersion': built['version']})
         # Durable cutover record: rollback needs the retained version and the V1 fingerprint.
         save(home / 'runtime/t3w-deploy/switchover.json',
              {'version': built['version'], 'previousVersion': previous_version, 'v1': before,
