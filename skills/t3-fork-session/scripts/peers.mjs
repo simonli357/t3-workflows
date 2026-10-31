@@ -232,7 +232,7 @@ async function mainV2(command, values, positionals, connection) {
 }
 
 function usage(command) {
-  console.log("t3w peer link SSH_ALIAS --local-url URL --remote-url URL [--remote-command CMD] [--access ACCESS] [--ttl 365d]\nt3w peer list | check | remove NAME_OR_ID\n(peer issue / peer add are run by link on the other machine)\nCommon: --server URL --home PATH --cli PATH select this computer's T3 server.\nT3 V2 servers hold their own links: --access (read-only, approval-required, auto-accept-edits, auto, full-access; default full-access) is what each side's agents may do on the other. V1 servers use bearer tokens in peer-environments.bin.");
+  console.log("t3w peer link SSH_ALIAS --local-url URL --remote-url URL [--remote-command CMD] [--access ACCESS] [--ttl 365d]\nt3w peer list | check | remove NAME_OR_ID\n(peer issue / peer add are run by link on the other machine)\nCommon: --server URL --home PATH --cli PATH select this computer's T3 server.\nT3 V2 servers hold their own links: --access (read-only, approval-required, auto-accept-edits, auto, full-access; default full-access) is what each side's agents may do on the other. Placement advice, remote workers and moves are peer requests, which a server accepts only from a full-access link; a lower access limits the link to the other server's own MCP tools. V1 servers use bearer tokens in peer-environments.bin.");
   if (command && !["help", "--help", "-h"].includes(command)) process.exitCode = 1;
 }
 
