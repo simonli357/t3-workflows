@@ -72,6 +72,13 @@ class ReleaseTests(unittest.TestCase):
             self.assertFalse(list(self.root.glob('migration-rehearsal.sqlite*')))
             self.assertEqual(release.ledger(self.db), [[1, 'First']])
 
+    def test_exe_build_uses_node_26_when_source_pins_older_node(self):
+        with tempfile.TemporaryDirectory() as d:
+            for engine, expected in [('^24.13.1', '26.8.2'), ('26.9.0', '26.9.0'), ('', '26.8.2')]:
+                Path(d, 'package.json').write_text(json.dumps({'engines': {'node': engine}}))
+                self.assertEqual(release.required_node(d), expected)
+            self.assertEqual(release.required_node(d, '25.8.0'), '25.8.0')
+
     def test_no_pending_does_not_make_copy(self):
         with patch.object(release, 'vacuum', side_effect=AssertionError('unneeded copy')):
             self.assertEqual(release.rehearse({'migrations': [[1, 'First']]}, self.db, self.root, 60)['pending'], [])

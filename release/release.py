@@ -318,7 +318,10 @@ def required_node(source, override=None):
         return override
     engine = read(Path(source) / 'package.json').get('engines', {}).get('node', '')
     match = re.fullmatch(r'\^?~?v?(\d+\.\d+\.\d+)', str(engine).strip())
-    return match.group(1) if match else '26.8.2'
+    # build-exe needs Node 25.7+; the custom line still pins 24 for development.
+    if not match or tuple(map(int, match.group(1).split('.'))) < (25, 7, 0):
+        return '26.8.2'
+    return match.group(1)
 
 
 def build(args, job):
