@@ -70,3 +70,5 @@ returns one informational warning, remembered across restarts. No confirmation
 or reclaim is needed for new workers. `t3_worker_reclaim` restores selected
 previously transferred workers when a new direct user instruction requests it
 (`workerReclaim` capability).
+
+A copied-data V2 trial can run alongside the live custom release on Linux. See [side-by-side V2 trial](docs/v2-trial.md) for lifecycle commands, archived refresh, containment and the separate parity gate.
