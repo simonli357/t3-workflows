@@ -97,3 +97,14 @@ test("a missing account base is created without deleting another account's sessi
   assert.equal(f.client.commands.some((c) => c.type === "thread.delete"), false);
   assert.equal(f.shell.threads.find((t) => t.title === "xl_base").modelSelection.instanceId, "claude_xinya");
 });
+
+
+test("V2 refresh refuses unsupported servers before creating or deleting sessions", async () => {
+ const f=fixture();f.client.protocol=2;f.client.rpc=()=>({promise:Promise.resolve({environment:{capabilities:{}}})});
+ await assert.rejects(refreshBase(f.client,f.plan()),/existing base is retained/);
+ assert.equal(f.client.commands.length,0);
+});
+test("saved project initialization prompt supplies refresh unless explicitly overridden",()=>{
+ const f=fixture();f.shell.projects[0].basePrompt="Read project conventions";
+ assert.equal(f.plan().prompt,"Read project conventions");
+});

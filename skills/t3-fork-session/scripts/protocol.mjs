@@ -38,7 +38,7 @@ export function normalizeShellThread(thread) {
     branch: thread.branch ?? null, worktreePath: thread.worktreePath ?? null,
     createdAt: thread.createdAt, updatedAt: thread.updatedAt,
     archivedAt: thread.archivedAt ?? null, deletedAt: thread.deletedAt ?? null,
-    settledAt: settledAtOf(thread), pinnedAt: thread.pinnedAt ?? null, isBase: false,
+    settledAt: settledAtOf(thread), pinnedAt: thread.pinnedAt ?? null, isBase: thread.isBase === true, organization: thread.organization ?? null,
     usageLimitResetAt: thread.usageLimitResetAt ?? null,
     session: sessionOf({ status, providerInstanceId: thread.providerInstanceId, activeRunId: thread.activeRunId, lastError }),
     latestTurn: thread.latestRunId ? {
@@ -73,7 +73,7 @@ export function normalizeThread(detail) {
     runtimeMode: thread.runtimeMode, interactionMode: thread.interactionMode,
     branch: thread.branch ?? null, worktreePath: thread.worktreePath ?? null,
     createdAt: thread.createdAt, updatedAt: thread.updatedAt, archivedAt: thread.archivedAt ?? null, deletedAt: thread.deletedAt ?? null,
-    settledAt: settledAtOf(thread), pinnedAt: thread.pinnedAt ?? null, isBase: false,
+    settledAt: settledAtOf(thread), pinnedAt: thread.pinnedAt ?? null, isBase: thread.isBase === true, organization: thread.organization ?? null,
     // The per-run user message ties a turn to the assignment that started it.
     messages: messages.filter((m) => m.role !== "system").map((m) => ({ id: m.id, role: m.role, text: m.text, createdAt: m.createdAt, turnId: m.runId })),
     session: { ...session, providerInstanceId: session.providerInstanceId ?? providerSessions?.at(-1)?.providerInstanceId ?? null },
@@ -98,14 +98,13 @@ export function translateCommand(command) {
         modelSelection: command.modelSelection, runtimeMode: command.runtimeMode, interactionMode: command.interactionMode,
         branch: command.branch ?? null, worktreePath: command.worktreePath ?? null }];
     case "thread.meta.update":
-      if (command.isBase) throw new Error("This T3 server has no Base sessions; refresh-bases needs a server with the baseSessions capability.");
       return [
-        ...(command.title === undefined ? [] : [{ type: "thread.metadata.update", commandId: `${commandId}:title`, threadId, title: command.title }]),
+        ...((command.title === undefined && command.isBase === undefined) ? [] : [{ type: "thread.metadata.update", commandId: `${commandId}:title`, threadId, ...(command.title === undefined ? {} : {title: command.title}), ...(command.isBase === undefined ? {} : {isBase: command.isBase}) }]),
         ...(command.modelSelection === undefined ? [] : [{ type: "thread.model-selection.set", commandId: `${commandId}:model`, threadId, modelSelection: command.modelSelection }]),
       ];
     case "thread.turn.start":
       return [{ type: "message.dispatch", ...creation, commandId, threadId, messageId: command.message.messageId, text: command.message.text,
-        attachments: command.message.attachments ?? [], modelSelection: command.modelSelection, dispatchMode: { type: "start_immediately" } }];
+        attachments: command.message.attachments ?? [], ...(command.message.context === undefined ? {} : {context: command.message.context}), ...(command.initializeBase === undefined ? {} : {initializeBase: command.initializeBase}), modelSelection: command.modelSelection, dispatchMode: { type: "start_immediately" } }];
     case "thread.settle": case "thread.delete": case "thread.pin": case "thread.unpin": case "thread.archive": case "thread.unarchive":
       return [{ type: command.type, commandId, threadId }];
     default:

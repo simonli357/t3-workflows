@@ -43,13 +43,17 @@ export function planRefresh(shell, config, { project, providers = Object.keys(PR
       project, provider: account, model, threadId, sourceThreadId: "refresh-template", name: `${profile.base}_refresh`, task: BASE_PROMPT,
     });
     return { ...plan, base: profile.base, oldId: old?.id ?? null, oldTurnId: old?.latestTurn?.turnId ?? null,
-      prompt: prompt ?? projectProfile(project)?.basePrompt ?? BASE_PROMPT, oldSelection: old?.modelSelection ?? null };
+      prompt: prompt ?? projects[0].basePrompt ?? projectProfile(project)?.basePrompt ?? BASE_PROMPT, oldSelection: old?.modelSelection ?? null };
   });
 }
 
 const answered = (thread) => idle(thread) && thread.messages.some((m) => m.role === "assistant" && m.text?.trim());
 
 export async function refreshBase(client, plan, emit = () => {}) {
+  if (client.protocol === 2) {
+    const config = await client.rpc("server.getConfig", {}).promise;
+    ensure(config.environment?.capabilities?.baseSessions === true, "This V2 server does not support prepared bases. The existing base is retained.");
+  }
   const snapshot = await client.http("/api/orchestration/shell");
   const existing = snapshot.threads.find((t) => t.id === plan.threadId);
   if (!existing) {

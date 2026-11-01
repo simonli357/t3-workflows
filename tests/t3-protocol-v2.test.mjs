@@ -62,7 +62,7 @@ test("V1 dispatch bodies become V2 commands with retry-stable IDs", () => {
   const [start] = translateCommand({ type: "thread.turn.start", commandId: "worker:1:start", threadId: "t", message: { messageId: "worker:1:task", role: "user", text: "go", attachments: [] }, modelSelection: selection });
   assert.deepEqual([start.type, start.messageId, start.text, start.dispatchMode], ["message.dispatch", "worker:1:task", "go", { type: "start_immediately" }]);
   assert.deepEqual(translateCommand({ type: "thread.settle", commandId: "s", threadId: "t" }), [{ type: "thread.settle", commandId: "s", threadId: "t" }]);
-  assert.throws(() => translateCommand({ type: "thread.meta.update", commandId: "c", threadId: "t", title: "base", isBase: true }), /baseSessions/);
+  assert.deepEqual(translateCommand({ type: "thread.meta.update", commandId: "c", threadId: "t", title: "base", isBase: true }), [{type:"thread.metadata.update", commandId:"c:title", threadId:"t", title:"base", isBase:true}]);
   assert.throws(() => translateCommand({ type: "thread.checkpoint.revert", commandId: "c", threadId: "t" }), /cannot send/);
   assert.deepEqual(forkCommand({ sourceThreadId: "a", threadId: "b" }).sourcePoint, { type: "latest_stable" });
 });
@@ -102,4 +102,24 @@ test("a linked environment's project resolves through the local project's reposi
   assert.deepEqual((await client.http("/api/orchestration/shell")).projects, [{ id: "Remote Name", title: "Remote Name", workspaceRoot: "Remote Name" }]);
   await assert.rejects(client.http("/api/orchestration/threads/x"), /direct connection/);
   await assert.rejects(client.thread("x"), /t3_thread_organize/);
+});
+
+
+test("V2 preserves base metadata, removal and explicit refresh context", () => {
+  const organization = {role: "worker", owner: {threadId:"owner",environmentId:"remote"}};
+  assert.equal(normalizeShell({projects:[],threads:[shellThread({isBase:true,organization})]}).threads[0].isBase,true);
+  assert.deepEqual(normalizeShell({projects:[],threads:[shellThread({organization})]}).threads[0].organization,organization);
+  assert.equal(normalizeThread({projection:{thread:shellThread({isBase:true}),runs:[],messages:[],providerSessions:[]}}).isBase,true);
+  assert.deepEqual(translateCommand({type:"thread.meta.update",commandId:"remove",threadId:"base",isBase:false}),[{type:"thread.metadata.update",commandId:"remove:title",threadId:"base",isBase:false}]);
+  const command={type:"thread.turn.start",commandId:"refresh",threadId:"base",initializeBase:true,message:{messageId:"message",text:"Refresh",attachments:[],context:[{type:"test"}]}};
+  const translated=translateCommand(command)[0];
+  assert.equal(translated.initializeBase,true);assert.deepEqual(translated.context,command.message.context);
+  assert.deepEqual(translateCommand(command),translateCommand(command));
+});
+
+test("unsupported V2 fails before applying any base metadata", async () => {
+  const client=new T3Client({server:"http://127.0.0.1:1",token:"t",timeout:1});client.protocol=2;
+  const calls=[];client.rpc=(tag)=>{calls.push(tag);return {promise:Promise.resolve({environment:{capabilities:{}}})};};
+  await assert.rejects(client.dispatch({type:"thread.meta.update",commandId:"base",threadId:"t",isBase:true}),/does not support/);
+  assert.deepEqual(calls,["server.getConfig"]);
 });

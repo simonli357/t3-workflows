@@ -178,6 +178,10 @@ export class T3Client {
   }
 
   async dispatchV2(command) {
+    if (command.isBase !== undefined || command.initializeBase) {
+      const config = await this.rpc("server.getConfig", {}).promise;
+      requireValue(config.environment?.capabilities?.baseSessions === true, "This V2 server does not support prepared bases. No designation or refresh was sent.");
+    }
     let result = { sequence: 0 };
     for (const translated of translateCommand(command)) result = await this.rpc("orchestration.dispatchCommand", translated).promise;
     return result;
