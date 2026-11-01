@@ -6,13 +6,13 @@ import { parseArgs } from "node:util";
 import { T3Client } from "./fork-session.mjs";
 
 export async function settleWorker(client, threadId) {
-  const thread = await client.thread(threadId);
-  if (thread.session?.activeTurnId || thread.latestTurn?.state === "running")
+  const thread = await client.thread(threadId, { messages: false });
+  if (thread.session?.activeTurnId || thread.session?.status === "starting" || thread.session?.status === "running" || thread.latestTurn?.state === "running")
     throw new Error(`${thread.title} has a running turn; review it after it finishes or stop it in T3 before settling.`);
   await client.dispatch({ type: "thread.settle", commandId: `settle:${threadId}:${randomUUID()}`, threadId });
-  const settled = await client.thread(threadId);
+  const settled = await client.thread(threadId, { messages: false });
   if (!settled.settledAt) throw new Error(`${settled.title} was not marked settled.`);
-  return { threadId, title: settled.title, settledAt: settled.settledAt };
+  return { ...(client.link?.environmentId ? { environmentId: client.link.environmentId } : {}), threadId, title: settled.title, settledAt: settled.settledAt };
 }
 
 async function main() {
@@ -27,7 +27,7 @@ async function main() {
   }
   // A worker on a linked machine is settled on that machine's server.
   const client = values.environment
-    ? (await import("./peers.mjs")).peerClient(values.environment, { home: values.home, timeout: Number(values.timeout) }).client
+    ? (await import("./peers.mjs")).peerClient(values.environment, { home: values.home, server: values.server, cli: values.cli, timeout: Number(values.timeout) }).client
     : new T3Client({ server: values.server, home: values.home, cli: values.cli, timeout: Number(values.timeout) });
   try {
     await client.connect();

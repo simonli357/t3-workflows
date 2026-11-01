@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
-import { mkdtempSync, statSync } from "node:fs";
+import { mkdtempSync, statSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -9,8 +9,9 @@ import { findPeer, peerFile, readPeers, upsertPeer, writePeers } from "../skills
 
 const peer = (label, environmentId = randomUUID()) => ({ environmentId, label, url: `https://${label}.example.ts.net:8443`, token: `token-${label}` });
 
-test("peer links persist privately and replace an environment's earlier link", () => {
+test("peer links persist privately and replace an environment's earlier link", (t) => {
   const home = mkdtempSync(path.join(tmpdir(), "t3w-peers-"));
+  t.after(() => rmSync(home, { recursive: true, force: true }));
   assert.deepEqual(readPeers(home), []);
   const myalien = peer("myalien");
   writePeers(home, upsertPeer(readPeers(home), myalien));

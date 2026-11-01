@@ -13,7 +13,7 @@ if (values.help) {
 } else {
   // A worker on a linked machine is validated against that machine's catalog.
   const client = values.environment
-    ? (await import("./peers.mjs")).peerClient(values.environment, { home: values.home, timeout: Number(values.timeout) }).client
+    ? (await import("./peers.mjs")).peerClient(values.environment, { home: values.home, server: values.server, cli: values.cli, timeout: Number(values.timeout) }).client
     : new T3Client({ ...values, timeout: Number(values.timeout) });
   try {
     if (!values["thread-id"] || !(values.provider || values.model || values.effort)) throw new Error("Supply --thread-id and at least one profile change.");

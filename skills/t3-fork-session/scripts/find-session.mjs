@@ -51,7 +51,8 @@ export async function lookupSession(client, input) {
     throw new Error(`--chars must be between ${MIN_CHARS} and ${MAX_CHARS}; it caps the complete JSON response.`);
   if ((input.offset && !input.messageId) || (input.before && input.messageId))
     throw new Error("Use --message-id with --offset, or --before, not both.");
-  const [active, archived] = await Promise.all([
+  const provenance = client.link?.environmentId ? { environmentId: client.link.environmentId } : {};
+  const [active, archived] = client.lookupShell ? [await client.lookupShell(input), { projects: [], threads: [] }] : await Promise.all([
     client.http("/api/orchestration/shell"),
     client.rpc("orchestration.getArchivedShellSnapshot", {}).promise,
   ]);
@@ -62,7 +63,7 @@ export async function lookupSession(client, input) {
   const matches = findMatches(shell, input);
   const status = matches.threads.length === 0 ? "not_found" : matches.threads.length > 1 ? "ambiguous" : "found";
   if (status !== "found" || input.list) {
-    const result = { status, matchType: matches.matchType, totalMatches: matches.threads.length,
+    const result = { ...provenance, status, matchType: matches.matchType, totalMatches: matches.threads.length,
       matches: matches.threads.slice(0, MAX_MESSAGES).map((t) => describe(t, shell)), hasMoreMatches: matches.threads.length > MAX_MESSAGES };
     while (JSON.stringify(result).length + 1 > chars && result.matches.length) {
       result.matches.pop(); result.hasMoreMatches = true;
@@ -70,9 +71,9 @@ export async function lookupSession(client, input) {
     return result;
   }
   const threadId = matches.threads[0].id;
-  let metadata = { status, matchType: matches.matchType, session: describe(matches.threads[0], shell) };
+  let metadata = { ...provenance, status, matchType: matches.matchType, session: describe(matches.threads[0], shell) };
   if (JSON.stringify(metadata).length + 1026 > chars)
-    metadata = { status, matchType: matches.matchType, session: { threadId } };
+    metadata = { ...provenance, status, matchType: matches.matchType, session: { threadId } };
   const available = chars - JSON.stringify(metadata).length - 2;
   if (available < 1024) throw new Error("Session metadata exceeds the requested size budget.");
   const query = new URLSearchParams({ messageLimit: String(messageLimit), maxChars: String(available), view: input.includeIntermediate ? "all" : "final" });
@@ -112,7 +113,7 @@ async function main() {
   if (Number(values.offset) && !values["message-id"]) throw new Error("--offset requires --message-id.");
   if (values.before && values["message-id"]) throw new Error("Use --before for older turns or --message-id for text continuation, not both.");
   const client = values.environment
-    ? (await import("./peers.mjs")).peerClient(values.environment, { home: values.home, timeout: Number(values.timeout) }).client
+    ? (await import("./peers.mjs")).peerClient(values.environment, { home: values.home, server: values.server, cli: values.cli, timeout: Number(values.timeout) }).client
     : new T3Client({ server: values.server, home: values.home, cli: values.cli, timeout: Number(values.timeout) });
   try {
     await client.connect();

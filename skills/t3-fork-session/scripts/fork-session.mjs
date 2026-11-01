@@ -398,12 +398,11 @@ async function main() {
     try { input.localPeerEnvironments = (await local.rpc("server.getConfig", {}).promise).environment.capabilities?.peerEnvironments === true; }
     finally { await local.close(); }
     const { peerClient } = await import("./peers.mjs");
-    client = peerClient(values.environment, { home: values.home, timeout: Number(values.timeout) }).client;
-    // A V2 link is reached through this computer's server, which resolves the project from this name.
-    if (client.linked) client.projectHint = values.project;
+    client = peerClient(values.environment, { home: values.home, server: values.server, cli: values.cli, timeout: Number(values.timeout) }).client;
   }
   try {
     await client.connect();
+    if (client.link) input.environment = client.link.environmentId;
     const result = await runFork(client, input, (value) => { if (!values["mcp-plan"] && !values["handoff-plan"]) console.log(JSON.stringify(value)); });
     if (values["mcp-plan"] || values["handoff-plan"]) console.log(JSON.stringify(workerInput(result, input.task, recommendation)));
     if (!input.dryRun) console.log(JSON.stringify(result));

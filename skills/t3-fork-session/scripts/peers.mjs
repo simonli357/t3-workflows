@@ -8,6 +8,7 @@ import { pathToFileURL } from "node:url";
 import { parseArgs, promisify } from "node:util";
 import { settings } from "./config.mjs";
 import { T3Client } from "./fork-session.mjs";
+import { normalizeShellThread, protocolOf } from "./protocol.mjs";
 
 export const PEER_ROUTE = "/api/peer/v1";
 const defaultHome = () => process.env.T3CODE_HOME ?? settings.connection?.home ?? path.join(homedir(), ".t3");
@@ -37,9 +38,10 @@ export function upsertPeer(peers, peer) {
 }
 
 export function findPeer(peers, nameOrId) {
-  const peer = peers.find((p) => p.environmentId === nameOrId || p.label.toLowerCase() === String(nameOrId).toLowerCase());
-  if (!peer) throw new Error(`No linked environment named ${nameOrId}. Run t3w peer link first.`);
-  return peer;
+  const exact = peers.filter((p) => p.environmentId === nameOrId);
+  const matches = exact.length ? exact : peers.filter((p) => p.label.toLowerCase() === String(nameOrId).toLowerCase());
+  if (matches.length !== 1) throw new Error(matches.length ? `${nameOrId} names several linked environments; use its environment ID.` : `No linked environment named ${nameOrId}. Run t3w peer link first.`);
+  return matches[0];
 }
 
 /**
@@ -47,16 +49,9 @@ export function findPeer(peers, nameOrId) {
  * talks to that environment's own server. A V2 link lives in the local server, which is the only
  * thing that can reach the other environment, so the client plans through the local server.
  */
-export function peerClient(nameOrId, { home, timeout } = {}) {
-  const peers = readPeers(home);
-  if (peers.length || !nameOrId) {
-    const peer = findPeer(peers, nameOrId);
-    return { peer, client: new T3Client({ server: peer.url, token: peer.token, timeout }) };
-  }
-  const client = new LinkedClient(nameOrId, { home, timeout });
-  return { peer: { label: nameOrId }, client };
+export function peerClient(nameOrId, options = {}) {
+  return { peer: { label: nameOrId }, client: new LinkedClient(nameOrId, options) };
 }
-
 const cliJson = async (args, { home = defaultHome(), cli = defaultCli() } = {}) =>
   JSON.parse((await promisify(execFile)(cli, [...args, "--base-dir", home, "--json"], { encoding: "utf8", timeout: 30000 })).stdout.replace(/^[^{[]*(?=[{[])/s, ""));
 
@@ -68,60 +63,147 @@ export const ACCESS_LEVELS = ["read-only", "approval-required", "auto-accept-edi
 
 export const linkMatches = (link, nameOrId) => link.environmentId === nameOrId || link.label.toLowerCase() === String(nameOrId).toLowerCase();
 
-/** A linked environment of a V2 server, as `t3w` plans against it: placement advice carries its projects. */
+/** Uses the local server's typed linked-session API. No operation silently falls back to local data. */
 export class LinkedClient extends T3Client {
   constructor(name, options = {}) {
-    super({ timeout: options.timeout, ...(options.server ? { server: options.server } : {}) });
+    super(options);
     this.linkName = name;
     this.linked = true;
   }
 
   async connect() {
+    // A failed probe is not evidence of V1: never send a stale V1 token after a V2 outage.
+    const response = await fetch(new URL("/.well-known/t3/environment", this.server), { signal: AbortSignal.timeout(Math.min(this.timeout, 15000)) });
+    if (!response.ok) throw new Error(`Cannot identify the local T3 server (HTTP ${response.status}).`);
+    this.protocol = protocolOf(await response.json());
+    if (this.protocol !== 2) {
+      const peer = findPeer(readPeers(this.home), this.linkName);
+      this.server = peer.url;
+      this.token = peer.token;
+      this.linked = false;
+      await super.connect();
+      return;
+    }
     await super.connect();
-    requireV2(this.protocol, `${this.linkName} is a linked environment, and links of a V1 server live in peer-environments.bin.`);
-    const { links } = await this.rpc("peerLinks.list", {}).promise;
-    const matches = links.filter((link) => linkMatches(link, this.linkName));
+    const { links } = await super.rpc("peerLinks.list", {}).promise;
+    const exact = links.filter((link) => link.environmentId === this.linkName);
+    const matches = exact.length ? exact : links.filter((link) => linkMatches(link, this.linkName));
     if (matches.length !== 1) throw new Error(matches.length ? `${this.linkName} names several linked environments; use its environment ID.` : `No linked environment named ${this.linkName}. Run t3w peer link first.`);
     this.link = matches[0];
     if (this.link.status !== "reachable") throw new Error(`${this.link.label} is ${this.link.status}${this.link.lastError ? `: ${this.link.lastError}` : ""}.`);
   }
 
-  /** The other computer's checkouts of a local project's repository, from placement advice. */
-  async checkouts(localProjectId) {
-    const response = await this.rpc("providerAllocation.execute", { _tag: "placement", request: { projectId: localProjectId, environmentId: this.link.environmentId } }).promise;
-    return response.placement.hosts.find((host) => host.environmentId === this.link.environmentId)?.projects ?? [];
+  async query(operation, input = {}) {
+    const result = await super.rawHttp("/api/orchestration/linked-sessions/query", { ...input, environmentId: this.link.environmentId, operation });
+    const identity = result.environmentId ?? result.environment?.environmentId;
+    if (identity !== undefined && identity !== this.link.environmentId) throw new Error("The linked response belongs to a different environment.");
+    return result;
   }
 
-  /** Remote projects are named by ID or title; one that matches a local project resolves through its repository. */
-  async shell() {
-    const local = await super.http("/api/orchestration/shell");
-    const hint = this.projectHint;
-    const localProject = hint && local.projects.find((p) => [p.id, p.title, p.workspaceRoot].some((v) => v && v.toLowerCase?.() === String(hint).toLowerCase()));
-    const found = localProject ? await this.checkouts(localProject.id) : [];
-    // A checkout found through the local project answers to the name the caller used for it.
-    const projects = found.length ? found.map((p) => ({ id: p.id, title: p.title, workspaceRoot: hint })) : hint ? [{ id: hint, title: hint, workspaceRoot: hint }] : [];
-    return { projects, threads: [] };
+  async command(operation, input) {
+    return super.rawHttp("/api/orchestration/linked-sessions/command", { ...input, environmentId: this.link.environmentId, operation });
+  }
+
+  async pages(operation, input, field) {
+    const entries = new Map();
+    let cursor = 0;
+    for (;;) {
+      const page = await this.query(operation, { ...input, cursor, limit: 100 });
+      for (const entry of page[field]) entries.set(entry.id, entry);
+      if (page.nextCursor === null) return [...entries.values()];
+      if (!Number.isSafeInteger(page.nextCursor) || page.nextCursor <= cursor) throw new Error("The linked environment returned a non-advancing page cursor.");
+      cursor = page.nextCursor;
+    }
+  }
+
+  async shell(location = "active") {
+    const [projects, threads] = await Promise.all([this.pages("projects", {}, "projects"), this.pages("list", { location }, "threads")]);
+    return { environmentId: this.link.environmentId, projects, threads: threads.map(normalizeShellThread) };
+  }
+
+  async lookupShell({ name, threadId }) {
+    if (!this.linked) {
+      const [active, archived] = await Promise.all([super.http("/api/orchestration/shell"), super.rpc("orchestration.getArchivedShellSnapshot", {}).promise]);
+      return { projects: [...new Map([...active.projects, ...archived.projects].map((p) => [p.id, p])).values()], threads: [...new Map([...archived.threads, ...active.threads].map((t) => [t.id, t])).values()] };
+    }
+    const input = threadId ? { threadId } : { titleContains: name?.trim() ?? "" };
+    const [projects, active, archived] = await Promise.all([
+      this.pages("projects", {}, "projects"), this.pages("list", input, "threads"),
+      threadId ? [] : this.pages("list", { ...input, location: "archive" }, "threads"),
+    ]);
+    return { projects, threads: [...new Map([...archived, ...active].map((t) => [t.id, normalizeShellThread(t)])).values()] };
   }
 
   async http(route, body) {
-    if (route.startsWith("/api/auth/")) return super.http(route, body);
+    if (!this.linked || route.startsWith("/api/auth/")) return super.http(route, body);
     if (route === "/api/orchestration/shell" && body === undefined) return this.shell();
-    throw new Error(`${this.link?.label ?? this.linkName} is reached through this server's link. ${route} needs a direct connection; use the T3 MCP tools with environmentId instead.`);
+    if (route === "/api/orchestration/dispatch") return this.dispatch(body);
+    if (route === "/api/orchestration/session-moves") return this.command("move", body);
+    if (route === "/api/orchestration/session-moves/status") return this.command("moveStatus", body);
+    const url = new URL(route, "http://workflow.invalid");
+    const detail = /^\/api\/orchestration\/threads\/([^/]+)$/.exec(url.pathname);
+    if (detail && body === undefined) return { thread: await this.thread(decodeURIComponent(detail[1])) };
+    const history = /^\/api\/orchestration\/threads\/([^/]+)\/messages$/.exec(url.pathname);
+    if (history && body === undefined) {
+      const input = Object.fromEntries(url.searchParams);
+      for (const key of ["messageLimit", "maxChars", "offset"]) if (key in input) input[key] = Number(input[key]);
+      return (await this.query("history", { ...input, threadId: decodeURIComponent(history[1]) })).history;
+    }
+    throw new Error(`Unsupported linked session route: ${route}`);
   }
 
-  /** The destination's catalog is not readable from here, so its accounts and models are checked by its own server when the work starts. */
   rpc(tag, payload, onValue) {
-    if (tag !== "server.getConfig") return super.rpc(tag, payload, onValue);
-    const id = "linked-config";
-    const promise = super.rpc(tag, payload, onValue).promise.then((config) => ({ ...config, environment: { ...config.environment, environmentId: this.link.environmentId, label: this.link.label } }));
-    return { id, promise };
+    if (!this.linked) return super.rpc(tag, payload, onValue);
+    const promise = tag === "server.getConfig" ? this.query("catalog")
+      : tag === "orchestration.getArchivedShellSnapshot" ? this.shell("archive")
+      : Promise.reject(new Error(`Unsupported linked session RPC: ${tag}`));
+    return { id: `linked:${++this.nextId}`, promise };
   }
 
-  async thread() { throw new Error(`${this.link.label} runs on a linked computer; read or settle its sessions with the T3 MCP tools (t3_thread_read, t3_thread_organize) and environmentId.`); }
-}
+  async thread(id, { messages = true } = {}) {
+    if (!this.linked) return super.thread(id);
+    const page = await this.query("list", { threadId: id, limit: 1 });
+    if (page.threads.length !== 1) throw new Error(`Session ${id} not found in ${this.link.label}.`);
+    const thread = { ...normalizeShellThread(page.threads[0]), environmentId: this.link.environmentId };
+    if (!messages) return thread;
+    const history = [];
+    let beforeMessageId;
+    const cursors = new Set();
+    for (;;) {
+      const { history: page } = await this.query("history", { threadId: id, view: "all", messageLimit: 15, maxChars: 64000, ...(beforeMessageId ? { beforeMessageId } : {}) });
+      const complete = [];
+      for (const message of page.messages) {
+        let text = message.text;
+        let offset = message.nextOffset;
+        while (offset !== null) {
+          const { history: chunk } = await this.query("history", { threadId: id, view: "all", messageId: message.messageId, offset, maxChars: 64000 });
+          const part = chunk.messages[0];
+          if (!part || part.messageId !== message.messageId || part.offset !== offset || (part.nextOffset !== null && part.nextOffset <= offset)) throw new Error("The linked environment returned a non-advancing message cursor.");
+          text += part.text;
+          offset = part.nextOffset;
+        }
+        complete.push({ id: message.messageId, role: message.role, text, createdAt: message.createdAt, turnId: message.turnId });
+      }
+      history.unshift(...complete);
+      if (!page.page.hasMore) break;
+      beforeMessageId = page.page.beforeMessageId;
+      if (!beforeMessageId || cursors.has(beforeMessageId)) throw new Error("The linked environment returned a non-advancing history cursor.");
+      cursors.add(beforeMessageId);
+    }
+    return { ...thread, messages: history };
+  }
 
-function requireV2(protocol, message) {
-  if (protocol !== 2) throw new Error(message);
+  async dispatch(command) {
+    if (!this.linked) return super.dispatch(command);
+    const action = command.type?.replace(/^thread\./, "");
+    if (!["settle", "unsettle", "pin", "unpin", "archive", "unarchive"].includes(action)) throw new Error(`Unsupported linked session command: ${command.type}`);
+    return this.command("organize", { threadId: command.threadId, action });
+  }
+
+  async fork(input) {
+    if (!this.linked) return super.fork(input);
+    throw new Error("Linked worker forks use the existing --mcp-plan workflow; direct linked fork execution is not supported.");
+  }
 }
 
 /** Runs `use` with a connected client of this computer's own server. */
