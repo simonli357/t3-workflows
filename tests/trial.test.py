@@ -177,15 +177,23 @@ http.server.HTTPServer(('127.0.0.1',port),Handler).serve_forever()
                 INSERT INTO orchestration_v2_legacy_imports VALUES('t','done',NULL);
                 DELETE FROM orchestration_events WHERE event_id='thread';
                 DELETE FROM orchestration_command_receipts;
-                DELETE FROM auth_sessions;
-                DROP TABLE projection_thread_activities;""")
+                DELETE FROM auth_sessions;""")
         trial.save(self.root / 'trial.json',{'generation':str(generation),'home':str(generation/'home')})
         with patch.object(trial,'v2_count_checks',return_value=[]), patch.object(trial,'content_checks',return_value=[]):
             result=trial.verify(self.root)
-            dropped=next(r for r in result['retainedTableCounts'] if r['table']=='projection_thread_activities')
-            self.assertIsNone(dropped['imported'])  # Never fall back to the attached input table.
+            retained=next(r for r in result['retainedTableCounts'] if r['table']=='projection_thread_activities')
+            self.assertEqual(retained['imported'],1)
             self.assertTrue(result['matches'])
             with closing(sqlite3.connect(destination)) as db, db:
+                db.execute('DROP TABLE projection_thread_activities')
+            with self.assertRaisesRegex(RuntimeError,'mismatched'):trial.verify(self.root)
+            result=trial.read(generation/'verification.json')
+            dropped=next(r for r in result['retainedTableCounts'] if r['table']=='projection_thread_activities')
+            self.assertIsNone(dropped['imported'])  # Never fall back to the attached input table.
+            self.assertFalse(dropped['matches'])
+            with closing(sqlite3.connect(destination)) as db, db:
+                db.execute('CREATE TABLE projection_thread_activities(id TEXT)')
+                db.execute("INSERT INTO projection_thread_activities VALUES('a')")
                 db.execute("DELETE FROM orchestration_events WHERE event_id='project'")
             with self.assertRaisesRegex(RuntimeError,'mismatched'):trial.verify(self.root)
             result=trial.read(generation/'verification.json')

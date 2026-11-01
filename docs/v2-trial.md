@@ -23,10 +23,11 @@ t3w release trial stop --job /absolute/job
 `start` is idempotent. `restart` uses the existing data and runtime. `verify` checks
 full import and retained-table counts, the transcript import ledger, and sampled
 project fields, thread metadata/model selection and message text/attachments/context.
-V2 migration 063 removes six obsolete V1 projection tables; the inventory records
-these explicitly. V2 also compacts imported legacy thread events/receipts. Verification
+The preservation build retains the legacy projection tables for history hydration
+and checkpoint recovery; verification rejects missing tables. V2 compacts imported
+legacy thread events/receipts. Verification
 checks that missing legacy rows belong only to successfully imported threads; all raw
-input remains retained. Neither transformation establishes feature parity.
+input remains retained. These checks do not establish feature parity.
 It fails if import is incomplete or sampled content differs; inspect the generation's
 `verification.json`. Counts alone do not pass. HTTP readiness may precede transcript
 hydration. The default startup deadline is 900 seconds; `--ready-seconds` overrides it.

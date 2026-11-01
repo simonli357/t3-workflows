@@ -389,10 +389,8 @@ def verify(root):
             except sqlite3.OperationalError:
                 after = None
             isolated = table in ('auth_sessions','auth_pairing_links')
-            # Migration 063 explicitly removes these obsolete V1 projections. Inventory
-            # their counts without pretending their removal proves behavioral parity.
-            dropped = table in ('checkpoint_diff_blobs', 'projection_thread_activities', 'projection_turns',
-                                'projection_pending_approvals', 'projection_state', 'projection_thread_proposed_plans')
+            # The preservation port retains legacy history for lazy hydration and rollback.
+            # Missing tables are loss, including on older destructive V2 builds.
             legacy = after
             compacted = unexpected = 0
             if table == 'orchestration_events':
@@ -406,8 +404,7 @@ def verify(root):
                 unexpected = right.execute('SELECT COUNT(*) ' + missing + f" AND NOT (s.aggregate_kind='thread' AND EXISTS (SELECT 1 FROM orchestration_v2_legacy_imports i WHERE i.thread_id=s.{thread_key} AND i.transcript_imported_at IS NOT NULL))").fetchone()[0]
             retained.append({'table':table,'source':before,'imported':after,'legacyRows':legacy,
                              'isolationDifference':isolated, 'compactedLegacyRows':compacted, 'unexpectedMissingRows':unexpected,
-                             'migrationDifference':'063_DropUnusedV1Projections; raw source retained; behavior not verified' if dropped else None,
-                             'matches':after is None if dropped else (legacy + compacted == (0 if isolated else before) and unexpected == 0)})
+                             'matches':after is not None and legacy + compacted == (0 if isolated else before) and unexpected == 0})
         pending = right.execute('SELECT COUNT(*) FROM orchestration_v2_legacy_imports WHERE transcript_imported_at IS NULL OR last_error IS NOT NULL').fetchone()[0]
     result = {'scope':'Infrastructure import proof only; feature parity NOT PROVEN',
               'counts':counts, 'retainedTableCounts':retained, 'content':content, 'pendingTranscripts':pending,
