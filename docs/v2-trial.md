@@ -1,7 +1,8 @@
 # Side-by-side V2 read/import trial (Linux)
 
 Use this before a production decision. It creates a separate process on a loopback
-port, from an explicit read-only V1 source. It never invokes the release controller,
+port, from an explicit read-only V1 source. It uses its own transient user systemd
+service in `t3w-trials.slice`, independent of production and the calling agent. It never invokes the release controller,
 service launcher, runtime selector, updater, agent slice, or Tailscale. It does not
 establish feature parity or authorize a production switch.
 
@@ -62,7 +63,7 @@ The active home deliberately differs from the retained input:
   linked environments and idle compaction; authentication and environment identity are fresh.
 - Presentation assets and attachments are copied into the active home. Original project
   paths and thread metadata are retained for comparison, but their workspaces are inaccessible.
-- Landlock (ABI 3+) and libseccomp are mandatory. The process and its descendants can
+- A user systemd manager, Landlock (ABI 3+) and libseccomp are mandatory. The process and its descendants can
   read their staged runtime and required system files and write only their own active
   home. Outbound socket operations and interference with other processes are denied.
   The process uses a private HOME, temp/cache directories and an explicit clean environment.

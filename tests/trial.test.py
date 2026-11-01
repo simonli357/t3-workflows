@@ -103,6 +103,7 @@ http.server.HTTPServer(('127.0.0.1',port),Handler).serve_forever()
         self.prepare()
         first = trial.start(self.root, 10)
         self.assertTrue(first['healthy'])
+        self.assertIn('/t3w-trials.slice/', Path(f"/proc/{first['pid']}/cgroup").read_text())
         self.assertEqual(first['pid'], trial.start(self.root, 10)['pid'])
         self.args.action = 'refresh'
         with self.assertRaisesRegex(RuntimeError, 'Stop'): trial.prepare(self.args, self.root)

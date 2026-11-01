@@ -20,7 +20,6 @@ import uuid
 from release import database, descriptor, prebuilt_runtime, read, save, vacuum, v2_count_checks
 
 HERE = Path(__file__).resolve().parent
-CHILDREN = {}
 
 
 def digest(path):
@@ -213,7 +212,10 @@ def status(root):
     result = {'running': process_alive(root), 'port': config['port'], 'home': config['home'],
               'generation': config['generation'], 'parity': 'not proven'}
     if result['running']:
-        result['pid'] = read(root / 'process.json')['pid']
+        record = read(root / 'process.json')
+        result['pid'] = record['pid']
+        result['unit'] = record.get('unit')
+        result['cgroup'] = Path(f"/proc/{record['pid']}/cgroup").read_text().strip()
         try:
             desc = descriptor(config['port'])
             result['healthy'] = (desc.get('environmentId') == config['environmentId'] and
@@ -247,8 +249,6 @@ def stop(root):
                 raise RuntimeError('Captured trial PID did not stop')
     finally:
         os.close(fd)
-    if record['pid'] in CHILDREN:
-        CHILDREN.pop(record['pid']).wait(timeout=1)
     return {'stopped': True, 'pid': record['pid']}
 
 
@@ -270,15 +270,33 @@ def start(root, seconds):
     command = [sys.executable, '-B', str(HERE / 'trial_sandbox.py'), str(home), str(runtime),
                str(runtime / 't3'), 'serve', '--base-dir', str(home), '--host', '127.0.0.1',
                '--port', str(config['port']), '--no-browser']
-    with (Path(config['generation']) / 'server.log').open('ab') as log:
-        child = subprocess.Popen(command, cwd=home, env=env, stdin=subprocess.DEVNULL,
-                                 stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
-    CHILDREN[child.pid] = child
-    save(root / 'process.json', {'pid': child.pid, 'identity': proc_identity(child.pid),
-                                'home': str(home), 'runtime': str(runtime)})
+    # A detached subprocess still inherits the calling agent's cgroup. A new
+    # transient service in our own slice survives independently of production's
+    # agent/service controllers, and systemd cleans up its children on exit.
+    unit = 't3w-trial-' + uuid.uuid4().hex + '.service'
+    manager_env = {'PATH':'/usr/bin:/bin', 'XDG_RUNTIME_DIR':f'/run/user/{os.getuid()}',
+                   'DBUS_SESSION_BUS_ADDRESS':f'unix:path=/run/user/{os.getuid()}/bus'}
+    launch = ['systemd-run','--user','--quiet','--collect','--unit='+unit,'--slice=t3w-trials.slice',
+              '--property=Type=exec','--property=Restart=no','--property=KillMode=control-group',
+              '--property=UMask=0077','--property=WorkingDirectory='+str(home),
+              '--property=StandardOutput=append:'+str(Path(config['generation'])/'server.log'),
+              '--property=StandardError=inherit','/usr/bin/env','-i',
+              *[key+'='+value for key,value in env.items()], *command]
+    subprocess.run(launch, cwd=home, env=manager_env, check=True, capture_output=True, text=True, timeout=30)
+    shown = subprocess.run(['systemctl','--user','show',unit,'-p','MainPID','--value'],
+                           cwd=home,env=manager_env,check=True,capture_output=True,text=True,timeout=10)
+    pid = int(shown.stdout.strip())
+    identity = proc_identity(pid) if pid > 0 else None
+    if identity is None:
+        raise RuntimeError('Trial service exited; inspect its generation/server.log')
+    save(root / 'process.json', {'pid':pid,'identity':identity,'unit':unit,
+                                'home':str(home),'runtime':str(runtime)})
+    if '/t3w-trials.slice/' not in Path(f'/proc/{pid}/cgroup').read_text():
+        stop(root)
+        raise RuntimeError('Trial did not enter its dedicated slice')
     deadline = time.monotonic() + seconds
     while time.monotonic() < deadline:
-        if child.poll() is not None:
+        if not process_alive(root):
             raise RuntimeError('Trial exited; inspect its generation/server.log')
         result = status(root)
         if result.get('healthy'):
@@ -442,6 +460,6 @@ def main(argv=None):
 if __name__ == '__main__':
     try:
         main()
-    except (RuntimeError, OSError, ValueError, sqlite3.Error) as error:
+    except (RuntimeError, OSError, ValueError, sqlite3.Error, subprocess.SubprocessError) as error:
         print(str(error), file=sys.stderr)
         sys.exit(1)
