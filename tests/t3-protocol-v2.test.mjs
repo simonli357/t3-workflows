@@ -89,19 +89,18 @@ test("a pairing code carries only the scopes its access level needs", () => {
   assert.equal(linkMatches({ environmentId: "e1", label: "MyAlien" }, "other"), false);
 });
 
-test("a linked environment's project resolves through the local project's repository", async () => {
+test("a linked environment returns its real project paths and session metadata", async () => {
   const client = new LinkedClient("alien", { timeout: 1 });
   client.link = { environmentId: "e2", label: "alien" };
   client.protocol = 2;
-  const local = { projects: [{ id: "p1", title: "Cam", workspaceRoot: "/home/me/cam" }], threads: [] };
-  client.rawHttp = async () => ({ projects: local.projects, threads: [], archivedThreads: [] });
-  client.rpc = (tag, payload) => ({ promise: Promise.resolve({ placement: { hosts: [{ environmentId: "e2", projects: payload.request.projectId === "p1" ? [{ id: "remote-cam", title: "cam-checkout" }] : [] }] } }) });
-  client.projectHint = "/home/me/cam";
-  assert.deepEqual(await client.http("/api/orchestration/shell"), { projects: [{ id: "remote-cam", title: "cam-checkout", workspaceRoot: "/home/me/cam" }], threads: [] });
-  client.projectHint = "Remote Name";
-  assert.deepEqual((await client.http("/api/orchestration/shell")).projects, [{ id: "Remote Name", title: "Remote Name", workspaceRoot: "Remote Name" }]);
-  await assert.rejects(client.http("/api/orchestration/threads/x"), /direct connection/);
-  await assert.rejects(client.thread("x"), /t3_thread_organize/);
+  const projects = [{ id: "remote-cam", title: "cam-checkout", workspaceRoot: "D:/remote/cam" }];
+  client.query = async (operation, input) => operation === "projects" ? { projects, nextCursor: null }
+    : { threads: input.threadId === "x" ? [] : [shellThread({ projectId: "remote-cam" })], nextCursor: null };
+  const shell = await client.http("/api/orchestration/shell");
+  assert.deepEqual(shell.projects, projects);
+  assert.equal(shell.threads[0].session.status, "ready");
+  await assert.rejects(client.thread("x"), /not found in alien/);
+  await assert.rejects(client.rpc("orchestration.dispatchCommand", {}).promise, /Unsupported linked/);
 });
 
 

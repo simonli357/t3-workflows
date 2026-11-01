@@ -4,7 +4,7 @@ import { randomUUID } from "node:crypto";
 import { parseArgs } from "node:util";
 import { pathToFileURL } from "node:url";
 import { T3Client } from "./fork-session.mjs";
-import { peerClient } from "./peers.mjs";
+import { peerClient, findPeer, readPeers } from "./peers.mjs";
 import { findMatches } from "./find-session.mjs";
 
 // Shell/catalog data only. Native transcripts travel server to server and are
@@ -52,31 +52,32 @@ async function main() {
   const connection = { home: values.home, timeout: Number(values.timeout), server: values.server, cli: values.cli };
   const sourceClient = values.from ? peerClient(values.from, connection).client : new T3Client(connection);
   let destinationClient;
+  let localClient;
   try {
     if (values.status) {
       const input = { requestId: values.status, ...(values.cancel ? { cancel: true } : {}) };
-      if (!values["mcp-plan"]) await sourceClient.connect();
-      console.log(JSON.stringify(values["mcp-plan"] ? { tool: "t3_session_move_status", input }
+      if (!values["mcp-plan"] || values.from) await sourceClient.connect();
+      console.log(JSON.stringify(values["mcp-plan"] ? { tool: "t3_session_move_status", input: { ...input, ...(sourceClient.link ? { environmentId: sourceClient.link.environmentId } : {}) } }
         : await sourceClient.http("/api/orchestration/session-moves/status", input), null, 2)); return;
     }
     if (!values.to || !positionals[0] && !values["thread-id"]) throw new Error("Supply a session name or --thread-id, and --to COMPUTER.");
-    destinationClient = peerClient(values.to, connection).client;
-    await Promise.all([sourceClient.connect(), destinationClient.connect()]);
+    await sourceClient.connect();
+    localClient = values.from ? new T3Client(connection) : sourceClient;
+    if (values.from) await localClient.connect();
+    const localConfig = await localClient.rpc("server.getConfig", {}).promise;
+    const links = localClient.protocol === 2 ? (await localClient.rpc("peerLinks.list", {}).promise).links : readPeers(localClient.home);
+    const target = findPeer([localConfig.environment, ...links], values.to);
+    destinationClient = target.environmentId === localConfig.environment.environmentId ? localClient : peerClient(target.environmentId, connection).client;
+    if (destinationClient !== localClient) await destinationClient.connect();
     const [source, sourceConfig] = await Promise.all([sourceClient.http("/api/orchestration/shell"), sourceClient.rpc("server.getConfig", {}).promise]);
-    // A V2 destination is reached through the source's link: its checkouts of the session's repository stand in for its project list.
-    if (destinationClient.linked) {
-      const thread = findMatches(source, { name: positionals[0], threadId: values["thread-id"], project: values["source-project"] }).threads[0];
-      destinationClient.projectHint = values.project ?? source.projects.find((project) => project.id === thread?.projectId)?.workspaceRoot;
-    }
     const [destination, destinationConfig] = await Promise.all([destinationClient.http("/api/orchestration/shell"), destinationClient.rpc("server.getConfig", {}).promise]);
-    const linkedProject = destinationClient.linked && !values.project && destination.projects.length === 1 ? destination.projects[0].id : undefined;
     const input = planMove(source, sourceConfig, destination, destinationConfig, {
-      name: positionals[0], threadId: values["thread-id"], sourceProject: values["source-project"], project: values.project ?? linkedProject,
+      name: positionals[0], threadId: values["thread-id"], sourceProject: values["source-project"], project: values.project,
       providerInstanceId: values["provider-instance-id"], requestId: values["request-id"],
     });
-    console.log(JSON.stringify(values["mcp-plan"] ? { tool: "t3_session_move", input }
+    console.log(JSON.stringify(values["mcp-plan"] ? { tool: "t3_session_move", input: { ...input, ...(sourceClient.link ? { environmentId: sourceClient.link.environmentId } : {}) } }
       : await sourceClient.http("/api/orchestration/session-moves", input), null, 2));
-  } finally { await sourceClient.close(); await destinationClient?.close(); }
+  } finally { await sourceClient.close(); if (destinationClient !== sourceClient) await destinationClient?.close(); if (localClient !== sourceClient && localClient !== destinationClient) await localClient?.close(); }
 }
 if (process.argv[1] && existsSync(process.argv[1]) && import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href)
   main().catch((error) => { console.error(error.message); process.exitCode = 1; });
