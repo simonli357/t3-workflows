@@ -145,7 +145,7 @@ def prepare(args, root):
     shutil.copyfile(inputs / 'userdata/state.sqlite', userdata / 'state.sqlite')
     changes = isolate_database(userdata / 'state.sqlite')
     settings = {'continueThreadsAfterServerUpdate': False, 'linkedEnvironmentsEnabled': False,
-                'idleCompaction': 'off', 'providerInstances': [],
+                'idleCompaction': 'off', 'providerInstances': {},
                 'sidebarAutoSettleAfterDays': None, 'sidebarAutoSettleOnMerge': False}
     save(userdata / 'settings.json', settings)
     environment = str(uuid.uuid4())
