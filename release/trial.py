@@ -145,7 +145,8 @@ def prepare(args, root):
     shutil.copyfile(inputs / 'userdata/state.sqlite', userdata / 'state.sqlite')
     changes = isolate_database(userdata / 'state.sqlite')
     settings = {'continueThreadsAfterServerUpdate': False, 'linkedEnvironmentsEnabled': False,
-                'idleCompaction': 'off', 'providerInstances': []}
+                'idleCompaction': 'off', 'providerInstances': [],
+                'sidebarAutoSettleAfterDays': None, 'sidebarAutoSettleOnMerge': False}
     save(userdata / 'settings.json', settings)
     environment = str(uuid.uuid4())
     (userdata / 'environment-id').write_text(environment + '\n')
@@ -306,37 +307,27 @@ def start(root, seconds):
     raise RuntimeError('Trial readiness timed out; stopped only its captured PID')
 
 
-def sample_rows(db, table, key, predicates=()):
-    rows = {}
-    for order in ('ASC', 'DESC'):
-        for row in db.execute(f'SELECT * FROM "{table}" ORDER BY "{key}" {order} LIMIT 3'):
-            rows[row[key]] = dict(row)
-    for predicate in predicates:
-        for row in db.execute(f'SELECT * FROM "{table}" WHERE {predicate} ORDER BY "{key}" LIMIT 3'):
-            rows[row[key]] = dict(row)
-    return list(rows.values())
-
-
 def content_checks(source, destination):
     checks = []
     with database(source) as left, database(destination) as right:
         left.row_factory = right.row_factory = sqlite3.Row
-        for row in sample_rows(left, 'projection_projects', 'project_id'):
+        for record in left.execute('SELECT * FROM projection_projects ORDER BY project_id'):
+            row = dict(record)
             other = right.execute('SELECT * FROM projection_projects WHERE project_id=?', (row['project_id'],)).fetchone()
             fields = list(row)
             checks.append({'kind': 'project', 'id': row['project_id'], 'fields': fields,
                            'matches': other is not None and all(row[k] == other[k] for k in fields)})
         mapping = {'project_id':'projectId', 'title':'title', 'branch':'branch', 'worktree_path':'worktreePath',
                    'runtime_mode':'runtimeMode', 'interaction_mode':'interactionMode', 'created_at':'createdAt',
+                   'updated_at':'updatedAt', 'is_base':'isBase',
                    'archived_at':'archivedAt', 'deleted_at':'deletedAt', 'settled_override':'settledOverride',
                    'settled_at':'settledAt', 'unsettled_at':'unsettledAt', 'snoozed_until':'snoozedUntil',
                    'snoozed_at':'snoozedAt', 'pinned_at':'pinnedAt', 'pin_order_key':'pinOrderKey',
                    'active_order_key':'activeOrderKey', 'auto_settle_disabled_at':'autoSettleDisabledAt',
                    'model_selection_json':'modelSelection', 'linked_pull_request_json':'linkedPullRequest',
                    'branch_pull_request_json':'branchPullRequest'}
-        for row in sample_rows(left, 'projection_threads', 'thread_id',
-                               ('pinned_at IS NOT NULL', 'snoozed_until IS NOT NULL',
-                                'branch IS NOT NULL', 'linked_pull_request_json IS NOT NULL')):
+        for record in left.execute('SELECT * FROM projection_threads ORDER BY thread_id'):
+            row = dict(record)
             other = right.execute('SELECT payload_json FROM orchestration_v2_projection_threads WHERE thread_id=?',
                                   (row['thread_id'],)).fetchone()
             payload = json.loads(other[0]) if other else {}
@@ -346,13 +337,13 @@ def content_checks(source, destination):
                 expected = row[column]
                 if column.endswith('_json') and expected is not None:
                     expected = json.loads(expected)
+                if column == 'is_base':
+                    expected = expected in ('true', '1', 1)
                 if payload.get(field) != expected:
                     mismatches.append(field)
             checks.append({'kind':'thread', 'id':row['thread_id'], 'fields':list(mapping.values()),
                            'matches': other is not None and not mismatches, 'mismatches':mismatches})
-        rows = sample_rows(left, 'projection_thread_messages', 'message_id',
-                           ("role='user'", "role='assistant'", "attachments_json IS NOT NULL AND attachments_json != '[]'",
-                            'context_json IS NOT NULL'))
+        rows = left.execute('SELECT * FROM projection_thread_messages ORDER BY message_id')
         for row in rows:
             if row['role'] not in ('user','assistant'): continue
             other = right.execute('SELECT payload_json FROM orchestration_v2_projection_messages WHERE message_id=?',

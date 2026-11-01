@@ -93,6 +93,19 @@ http.server.HTTPServer(('127.0.0.1',port),Handler).serve_forever()
         with self.assertRaises(RuntimeError): trial.prepare(self.args, self.root)
         self.assertEqual(trial.read(self.root / 'trial.json'), second)
 
+    def test_trial_disables_automatic_settlement_without_changing_original_settings(self):
+        original = {'sidebarAutoSettleAfterDays': 7, 'sidebarAutoSettleOnMerge': True,
+                    'projectSettings': {'p': {'sidebarAutoSettleAfterDays': 1}}}
+        trial.save(self.source / 'userdata/settings.json', original)
+        config = self.prepare()
+        active = trial.read(Path(config['home']) / 'userdata/settings.json')
+        self.assertIn('sidebarAutoSettleAfterDays', active)
+        self.assertIsNone(active['sidebarAutoSettleAfterDays'])
+        self.assertIs(active['sidebarAutoSettleOnMerge'], False)
+        self.assertNotIn('projectSettings', active)
+        self.assertEqual(trial.read(self.source / 'userdata/settings.json'), original)
+        self.assertEqual(trial.read(Path(config['generation']) / 'input/userdata/settings.json'), original)
+
     def test_overlap_and_repeat_prepare_refused(self):
         for root in (self.source, self.source / 'trial', self.job):
             with self.assertRaises(RuntimeError): trial.locations(self.job, self.source, root)
@@ -133,9 +146,10 @@ http.server.HTTPServer(('127.0.0.1',port),Handler).serve_forever()
             db.executescript("""CREATE TABLE projection_projects(project_id TEXT, title TEXT, base_prompt TEXT);
               INSERT INTO projection_projects VALUES('p','Project','custom prompt');
               CREATE TABLE projection_threads(thread_id TEXT, project_id TEXT, title TEXT, branch TEXT,
-                pinned_at TEXT, snoozed_until TEXT, linked_pull_request_json TEXT, model_selection_json TEXT);
+                pinned_at TEXT, snoozed_until TEXT, linked_pull_request_json TEXT, model_selection_json TEXT,
+                updated_at TEXT, is_base TEXT);
               INSERT INTO projection_threads VALUES('t','p','Thread','topic',NULL,NULL,NULL,
-                '{"instanceId":"SL","model":"astra"}');
+                '{"instanceId":"SL","model":"astra"}', '2026-10-31T17:56:58.787Z', 'true');
               CREATE TABLE projection_thread_messages(message_id TEXT, thread_id TEXT, role TEXT, text TEXT,
                 created_at TEXT, updated_at TEXT, attachments_json TEXT, context_json TEXT);
               INSERT INTO projection_thread_messages VALUES('m','t','assistant','original text','date','date','[]',NULL);""")
@@ -144,19 +158,38 @@ http.server.HTTPServer(('127.0.0.1',port),Handler).serve_forever()
               INSERT INTO projection_projects VALUES('p','Project','custom prompt');
               CREATE TABLE orchestration_v2_projection_threads(thread_id TEXT,payload_json TEXT);
               CREATE TABLE orchestration_v2_projection_messages(message_id TEXT,payload_json TEXT);""")
-            thread = {'projectId':'p','title':'Thread','branch':'topic','modelSelection':{'instanceId':'SL','model':'astra'}}
+            thread = {'projectId':'p','title':'Thread','branch':'topic','modelSelection':{'instanceId':'SL','model':'astra'},
+                      'updatedAt':'2026-10-31T17:56:58.787Z', 'isBase':True}
             message = {'id':'m','threadId':'t','role':'assistant','text':'original text','createdAt':'date','updatedAt':'date','attachments':[]}
             db.execute('INSERT INTO orchestration_v2_projection_threads VALUES(?,?)',('t',json.dumps(thread)))
             db.execute('INSERT INTO orchestration_v2_projection_messages VALUES(?,?)',('m',json.dumps(message)))
         self.assertTrue(all(c['matches'] for c in trial.content_checks(self.db,destination)))
+        # The changed row sits beyond either three-row edge and the former feature samples.
+        with closing(sqlite3.connect(self.db)) as db, db:
+            db.execute("UPDATE projection_threads SET branch=NULL")
+            for n in range(1, 9):
+                db.execute("INSERT INTO projection_threads SELECT ?,project_id,title,branch,pinned_at,snoozed_until,"
+                           "linked_pull_request_json,model_selection_json,updated_at,is_base FROM projection_threads WHERE thread_id='t'",
+                           (f't{n}',))
+        with closing(sqlite3.connect(destination)) as db, db:
+            thread['branch'] = None
+            db.execute('UPDATE orchestration_v2_projection_threads SET payload_json=?',(json.dumps(thread),))
+            for n in range(1, 9):
+                db.execute('INSERT INTO orchestration_v2_projection_threads VALUES(?,?)',(f't{n}',json.dumps(thread)))
+        self.assertTrue(all(c['matches'] for c in trial.content_checks(self.db,destination)))
         with closing(sqlite3.connect(destination)) as db, db:
             thread['modelSelection']['instanceId']='wrong'
+            thread['updatedAt']='2026-10-23T21:09:52.575Z'
+            thread['isBase']=False
             message['text']='lost content'
-            db.execute('UPDATE orchestration_v2_projection_threads SET payload_json=?',(json.dumps(thread),))
+            db.execute("UPDATE orchestration_v2_projection_threads SET payload_json=? WHERE thread_id='t4'",(json.dumps(thread),))
             db.execute('UPDATE orchestration_v2_projection_messages SET payload_json=?',(json.dumps(message),))
         failed = [c for c in trial.content_checks(self.db,destination) if not c['matches']]
         self.assertEqual({c['kind'] for c in failed},{'thread','message'})
         self.assertIn('modelSelection',next(c for c in failed if c['kind']=='thread')['mismatches'])
+        self.assertEqual(next(c for c in failed if c['kind']=='thread')['id'], 't4')
+        self.assertEqual(set(next(c for c in failed if c['kind']=='thread')['mismatches']),
+                         {'modelSelection','updatedAt','isBase'})
 
     def test_inventory_accounts_for_compaction_but_rejects_unexpected_loss(self):
         generation = self.root / 'generations/g1'

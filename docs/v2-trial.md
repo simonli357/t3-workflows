@@ -21,14 +21,14 @@ t3w release trial stop --job /absolute/job
 ```
 
 `start` is idempotent. `restart` uses the existing data and runtime. `verify` checks
-full import and retained-table counts, the transcript import ledger, and sampled
-project fields, thread metadata/model selection and message text/attachments/context.
+full import and retained-table counts, the transcript import ledger, and every
+project's fields, thread's metadata/model selection and message's text/attachments/context.
 The preservation build retains the legacy projection tables for history hydration
 and checkpoint recovery; verification rejects missing tables. V2 compacts imported
 legacy thread events/receipts. Verification
 checks that missing legacy rows belong only to successfully imported threads; all raw
 input remains retained. These checks do not establish feature parity.
-It fails if import is incomplete or sampled content differs; inspect the generation's
+It fails if import is incomplete or content differs; inspect the generation's
 `verification.json`. Counts alone do not pass. HTTP readiness may precede transcript
 hydration. The default startup deadline is 900 seconds; `--ready-seconds` overrides it.
 
@@ -61,7 +61,7 @@ The active home deliberately differs from the retained input:
   Legacy provider resume state is cleared. Original rows remain in the input snapshot.
 - Original settings, secrets, peer identities, computer configuration and provider homes
   stay outside the active home. The active settings disable restart continuation,
-  linked environments and idle compaction; authentication and environment identity are fresh.
+  linked environments, idle compaction and automatic settlement; authentication and environment identity are fresh.
 - Presentation assets and attachments are copied into the active home. Original project
   paths and thread metadata are retained for comparison, but their workspaces are inaccessible.
 - A user systemd manager, Landlock (ABI 3+) and libseccomp are mandatory. The process and its descendants can
