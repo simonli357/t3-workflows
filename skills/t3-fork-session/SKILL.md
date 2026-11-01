@@ -569,6 +569,43 @@ restart and does not shrink `state.sqlite`; SQLite reuses the freed pages. The
 `t3_purge_settled_threads` MCP tool runs the same purge but can time out on large
 databases; prefer the CLI. Never purge by editing the database.
 
+Before a confirmed purge, capture the reporting metadata on each computer in the
+user's requested scope: environment ID/name, thread ID, project ID/name/workspace
+root, and provider driver plus account/instance label. Use the read-only shell
+snapshot (`/api/orchestration/shell`) and archived shell snapshot
+(`orchestration.getArchivedShellSnapshot`), resolving provider instances against
+that environment's provider catalog. The purge report alone lacks project labels;
+after deletion these thread records are gone. Match by environment ID and thread
+ID, not title or transcript path. Keep unresolved labels as `unknown` rather than
+guessing. Reporting across computers does not authorize purging additional ones.
+
+After the real run, report analytics from its actual results, never the preview:
+
+- A table grouped by **computer → project → provider** with the number of sessions
+  successfully deleted in each group. Show provider families (Codex, Claude, etc.);
+  retain account/instance labels when multiple accounts use the same provider.
+  Include project workspace roots when names are ambiguous. Counts must reconcile
+  with per-computer and overall successful deletion totals.
+- A per-computer table with successful, skipped, and failed session counts and
+  **reported transcript bytes removed**, using readable units. Sum successful
+  results only; keep missing/unsupported transcript notes visible so deleting a
+  T3 record is not mistaken for deleting a native transcript. List failures and
+  summarize skip reasons. Distinguish unreachable/not-run computers from zero
+  deletions; do not count an interrupted or timed-out request as successful.
+- Distinguish transcript file bytes from measured filesystem space reclaimed.
+  Measure free space on the affected filesystems before and after the purge,
+  count each filesystem once per computer, and label the delta as observed
+  (concurrent writes can affect it). Include this delta in the per-computer table;
+  if measurement is unavailable, say physical space reclaimed was not measured.
+  SQLite's `databaseReusableBytes` is the total reusable space at
+  report time, not the space freed by this run or disk space reclaimed; show it
+  separately if useful. Do not run VACUUM just to improve the reported savings.
+
+Include the age threshold and execution time with the summary. A dry run may use
+the same tables, but label every count and byte total as **would delete** and
+report no actual deletions or reclaimed space. No sessions should be purged just
+to test this reporting workflow.
+
 ## Refresh the prepared bases
 
 When the user requests a base refresh, run
