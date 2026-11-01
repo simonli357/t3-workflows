@@ -201,6 +201,8 @@ http.server.HTTPServer(('127.0.0.1',port),Handler).serve_forever()
                 INSERT INTO orchestration_events VALUES('project','project','p'),('thread','thread','t');
                 CREATE TABLE orchestration_command_receipts(command_id TEXT PRIMARY KEY,aggregate_kind TEXT,aggregate_id TEXT);
                 INSERT INTO orchestration_command_receipts VALUES('receipt','thread','t');
+                CREATE TABLE auth_pairing_links(id TEXT,credential TEXT);
+                INSERT INTO auth_pairing_links VALUES('original-link','original-credential');
                 CREATE TABLE projection_thread_activities(id TEXT); INSERT INTO projection_thread_activities VALUES('a');""")
         trial.vacuum(self.db,source);trial.vacuum(self.db,destination)
         with closing(sqlite3.connect(destination)) as db, db:
@@ -210,13 +212,27 @@ http.server.HTTPServer(('127.0.0.1',port),Handler).serve_forever()
                 INSERT INTO orchestration_v2_legacy_imports VALUES('t','done',NULL);
                 DELETE FROM orchestration_events WHERE event_id='thread';
                 DELETE FROM orchestration_command_receipts;
-                DELETE FROM auth_sessions;""")
+                DELETE FROM auth_sessions;
+                DELETE FROM auth_pairing_links;""")
         trial.save(self.root / 'trial.json',{'generation':str(generation),'home':str(generation/'home')})
         with patch.object(trial,'v2_count_checks',return_value=[]), patch.object(trial,'content_checks',return_value=[]):
             result=trial.verify(self.root)
             retained=next(r for r in result['retainedTableCounts'] if r['table']=='projection_thread_activities')
             self.assertEqual(retained['imported'],1)
             self.assertTrue(result['matches'])
+            with closing(sqlite3.connect(destination)) as db, db:
+                db.execute("INSERT INTO auth_sessions VALUES('trial-client')")
+                db.execute("INSERT INTO auth_pairing_links VALUES('trial-link','trial-credential')")
+            self.assertTrue(trial.verify(self.root)['matches'])
+            with closing(sqlite3.connect(destination)) as db, db:
+                db.execute("INSERT INTO auth_sessions VALUES('login')")
+            with self.assertRaisesRegex(RuntimeError,'mismatched'):trial.verify(self.root)
+            with closing(sqlite3.connect(destination)) as db, db:
+                db.execute("DELETE FROM auth_sessions WHERE session_id='login'")
+                db.execute("INSERT INTO auth_pairing_links VALUES('changed-id','original-credential')")
+            with self.assertRaisesRegex(RuntimeError,'mismatched'):trial.verify(self.root)
+            with closing(sqlite3.connect(destination)) as db, db:
+                db.execute("DELETE FROM auth_pairing_links WHERE id='changed-id'")
             with closing(sqlite3.connect(destination)) as db, db:
                 db.execute('DROP TABLE projection_thread_activities')
             with self.assertRaisesRegex(RuntimeError,'mismatched'):trial.verify(self.root)

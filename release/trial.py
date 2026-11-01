@@ -384,6 +384,17 @@ def verify(root):
             # Missing tables are loss, including on older destructive V2 builds.
             legacy = after
             compacted = unexpected = 0
+            copied_auth = None
+            if isolated and after is not None:
+                # A client may pair with the trial. Only copied production grants
+                # are forbidden; fresh trial credentials are expected to persist.
+                key = 'session_id' if table == 'auth_sessions' else 'id'
+                match = f's.{key}=d.{key}'
+                if table == 'auth_pairing_links':
+                    match += ' OR s.credential=d.credential'
+                copied_auth = right.execute(
+                    f'SELECT COUNT(*) FROM main.{quoted} d WHERE EXISTS '
+                    f'(SELECT 1 FROM trial_input.{quoted} s WHERE {match})').fetchone()[0]
             if table == 'orchestration_events':
                 legacy = right.execute('SELECT COUNT(*) FROM orchestration_events WHERE application_event_version=1').fetchone()[0]
             elif table == 'orchestration_command_receipts':
@@ -395,7 +406,8 @@ def verify(root):
                 unexpected = right.execute('SELECT COUNT(*) ' + missing + f" AND NOT (s.aggregate_kind='thread' AND EXISTS (SELECT 1 FROM orchestration_v2_legacy_imports i WHERE i.thread_id=s.{thread_key} AND i.transcript_imported_at IS NOT NULL))").fetchone()[0]
             retained.append({'table':table,'source':before,'imported':after,'legacyRows':legacy,
                              'isolationDifference':isolated, 'compactedLegacyRows':compacted, 'unexpectedMissingRows':unexpected,
-                             'matches':after is not None and legacy + compacted == (0 if isolated else before) and unexpected == 0})
+                             'copiedAuthRows':copied_auth,
+                             'matches':after is not None and (copied_auth == 0 if isolated else legacy + compacted == before) and unexpected == 0})
         pending = right.execute('SELECT COUNT(*) FROM orchestration_v2_legacy_imports WHERE transcript_imported_at IS NULL OR last_error IS NOT NULL').fetchone()[0]
     result = {'scope':'Infrastructure import proof only; feature parity NOT PROVEN',
               'counts':counts, 'retainedTableCounts':retained, 'content':content, 'pendingTranscripts':pending,

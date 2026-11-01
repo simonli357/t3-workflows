@@ -62,6 +62,7 @@ The active home deliberately differs from the retained input:
 - Original settings, secrets, peer identities, computer configuration and provider homes
   stay outside the active home. The active settings disable restart continuation,
   linked environments, idle compaction and automatic settlement; authentication and environment identity are fresh.
+  Clients may pair with the trial; verification permits fresh trial credentials and rejects copied production grants.
 - Presentation assets and attachments are copied into the active home. Original project
   paths and thread metadata are retained for comparison, but their workspaces are inaccessible.
 - A user systemd manager, Landlock (ABI 3+) and libseccomp are mandatory. The process and its descendants can
