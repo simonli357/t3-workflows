@@ -9,6 +9,14 @@
   },
   "contracts": [
     {
+      "name": "DeepSeek Flash max only",
+      "requirement": "DeepSeek accounts and models expose only V4.1 Flash with max reasoning. Enforce the restriction in the catalog, web/mobile pickers, native session start and recovery, turns, compaction and text generation. Reject other DeepSeek models; pin saved lower Flash efforts to max on the next request. Preserve choices for other providers.",
+      "localCommits": [
+        "834b50b1f7"
+      ],
+      "status": "implemented and focused tests pass; deployed version is recorded per host by the release workflow"
+    },
+    {
       "name": "same-provider native session moves",
       "requirement": "Move Codex-to-Codex or Claude-to-Claude across linked computers, preserving native identity, persisted context, complete T3 conversation/settings, attachments, workspace changes/checkpoints and worker/report routing. Validate the destination before freezing; chunk/hash-verify data, refuse fresh-session fallback, reconcile durable commit receipts, retain only one writable owner, and support cancellation and return moves. Metadata-only planning never reads the full chat into model context.",
       "capability": "nativeSessionMoves",
