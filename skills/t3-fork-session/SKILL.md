@@ -330,11 +330,11 @@ user says overrides these defaults.
    Do not ask for confirmation or reclaim merely to launch new workers.
 
 `t3_orchestrator_handoff_status` inspects or cancels a handoff before ownership
-moves. A worker spawn does not transfer the role. When the user tells a former
-master to take selected workers back, use `t3_worker_reclaim` as described in
+moves. A worker spawn does not transfer the role. For a former
+master taking selected workers back, use `t3_worker_reclaim` as described in
 [orchestrator-handoff.md](references/orchestrator-handoff.md#reclaim-selected-workers).
-Reclaim is only needed to take back previously transferred workers at the user's
-request; it is not a prerequisite for creating new ones. Other modes, retries
+Reclaim takes back selected previously transferred workers directly; no user
+approval or quoted instruction is required. It is not a prerequisite for creating new ones. Other modes, retries
 and failures are in that reference.
 
 ## Work across linked environments
