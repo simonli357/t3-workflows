@@ -1,6 +1,6 @@
 ---
 name: t3-fork-session
-description: Create fresh T3 sessions, fork conversations, or move full native sessions between linked computers with the same provider, manage workers with explicit constraints or deterministic account/model selection, and find, read, or message other sessions, including on linked machines. Use for T3 delegation, worker management, and session coordination; not unrelated work in the current session. User keywords "renew yourself" (hand this master to a successor), "switch WORKER to ACCOUNT" (change a worker's provider in place), "renew WORKER" (replace a worker with a new session), and "reclaim WORKERS" (take selected handed-off workers back at the user's request).
+description: Create fresh T3 sessions, fork conversations, or move full native sessions between linked computers with the same provider, manage workers with explicit constraints or deterministic account/model selection, and find, read, or message other sessions, including on linked machines. Use for T3 delegation, worker management, and session coordination; not unrelated work in the current session. User keywords "renew yourself" (hand this master to a successor), "switch WORKER to ACCOUNT" (change a worker's provider in place), "renew WORKER" (replace a worker with a new session), and "reclaim WORKERS" (take selected previously handed-off workers back).
 ---
 
 # T3 Sessions and Workers
