@@ -105,7 +105,19 @@ export function run(executable, args, options = {}) {
   check(remainingRunnerMs() > 0, 'deadline', 'Runner lifetime exhausted; retain the current phase for recovery');
   execution.timeout = Math.min(execution.timeout ?? 30000, remainingRunnerMs());
   try { return execFileSync(executable, args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout: 30000, maxBuffer: 64 * 1024 * 1024, windowsHide: true, env: cleanEnv(), ...execution }); }
-  catch (error) { if (acceptedExitCodes.includes(error.status) && typeof error.stdout === 'string') return error.stdout; throw new DeployError('command', 'A fixed host command failed; check executable, access and host support'); }
+  catch (error) {
+    if (acceptedExitCodes.includes(error.status) && typeof error.stdout === 'string') return error.stdout;
+    const operation = path.basename(args[0] ?? '') === 'host.py' ? ` host.py ${args[1]}` : '';
+    const reason = error.code === 'ETIMEDOUT' ? `timed out after ${execution.timeout}ms` : `failed (${error.code ?? error.status ?? error.signal ?? 'unknown'})`;
+    throw new DeployError('command', `Fixed host command ${executable}${operation} ${reason}; inspect host load and the retained deployment receipt before retrying`);
+  }
+}
+// Full-history preservation reads can exceed the generic helper deadline under
+// load. Give the complete proof a bounded allowance, never a partial read.
+export const SNAPSHOT_TIMEOUT_MS = 120000;
+export function readSnapshot(python, database, runCommand = run) {
+  check(remainingRunnerMs() >= SNAPSHOT_TIMEOUT_MS, 'deadline', 'Insufficient runner lifetime for the 120s preservation snapshot; resume the retained phase with a fresh runner');
+  return JSON.parse(runCommand(python, [path.join(here, 'host.py'), 'snapshot', database], { timeout: SNAPSHOT_TIMEOUT_MS }));
 }
 export function validateTarget(t, { platform = process.platform, arch = process.arch } = {}) {
   check(['boot-service', 'desktop-files'].includes(t.kind) && t.platform === `${platform}-${arch}`, 'unsupported', 'Run the host adapter on its matching platform');
@@ -144,12 +156,13 @@ export function makeNative(t, m, manifestPath, dependencies = {}) {
   function requireBackupLifetime(beforeStop = false) {
     if (m.compatibility.migrations !== 'forward-only') return;
     // Leave the install/start timeout, native recovery verification and receipt
-    // margin intact; do not spend those on a long copy or checksum.
-    const required = backupSeconds + checksumSeconds + 150 + (t.verifySeconds ?? 120) + 30 + (beforeStop ? 150 : 0);
+    // margin intact, including both acceptance snapshots and the closed snapshot
+    // when still before stop; do not spend those on a long copy or checksum.
+    const required = backupSeconds + checksumSeconds + 150 + (t.verifySeconds ?? 120) + 30 + 2 * (SNAPSHOT_TIMEOUT_MS / 1000 - 30) + (beforeStop ? 150 + SNAPSHOT_TIMEOUT_MS / 1000 : 0);
     check(remainingRunnerMs() >= required * 1000, 'deadline', 'Insufficient runner lifetime for backup, checksum and acceptance; resume the retained phase with a fresh runner');
   }
   const python = (operation, arg) => JSON.parse(run(t.python, [path.join(here, 'host.py'), operation, arg], { timeout: operation === 'backup' ? backupSeconds * 1000 : 30000 }));
-  const snapshot = () => python('snapshot', path.join(t.baseDir, 'userdata/state.sqlite'));
+  const snapshot = () => readSnapshot(t.python, path.join(t.baseDir, 'userdata/state.sqlite'), run);
   async function get(route, json = true) {
     let response;
     // Synchronous snapshots/hashes can outlast server keep-alive while blocking

@@ -699,7 +699,10 @@ def runner_seconds(req):
         raise ValueError('Verification budget must be 1..180 seconds')
     # The original 840s envelope includes 120s acceptance. Preserve its fixed
     # preflight/stop/install margins when a target explicitly requests 180s.
-    return 840 if req.get('command') not in ('apply', 'resume', 'measure-backup') else 840 + seconds - 270 + checksum - 30 + max(0, verify - 120)
+    # Activation can take eight preservation snapshots across both preflights,
+    # closure/backup and acceptance. Retain the original non-snapshot margins
+    # when each snapshot grows from 30s to 120s. Staging's two fit within 840s.
+    return 840 if req.get('command') not in ('apply', 'resume', 'measure-backup') else 840 + 8 * (120 - 30) + seconds - 270 + checksum - 30 + max(0, verify - 120)
 
 
 def snapshot(database):
