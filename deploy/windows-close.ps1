@@ -1,6 +1,7 @@
 param([Parameter(Mandatory=$true)][string]$Request)
 $ErrorActionPreference='Stop'
 $r=Get-Content -LiteralPath $Request -Raw | ConvertFrom-Json
+$r.executable=[System.IO.Path]::GetFullPath($r.executable)
 $owners=@(Get-NetTCPConnection -LocalPort $r.port -State Listen | Select-Object -ExpandProperty OwningProcess -Unique)
 if($owners.Count -ne 1){throw 'Listener owner changed'}
 $backend=Get-CimInstance Win32_Process -Filter ('ProcessId=' + [int]$owners[0])

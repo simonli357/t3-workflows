@@ -137,12 +137,29 @@ export function checkSessions(snapshot) {
     const running = s.status === 'running' || s.status === 'starting' || Boolean(s.activeTurnId);
     check(!running || eligible(s), 'unsupported', 'Starting, stopped/snoozed/settled, or ambiguous active sessions must settle before deployment');
     check(!s.marker || eligible(s), 'unsupported', 'Stale continuation marker needs supported reconciliation before deployment');
-    if (eligible(s)) check(s.nativeId && s.profile && s.instance && s.bindingStatus === 'running' && s.provider === 'codex', 'unsupported', 'Running sessions require verified Codex promptless native continuation; other adapters must finish first');
+    if (eligible(s) && s.provider === 'claudeAgent') {
+      const cursor = new Map(snapshot.claudeContinuations ?? []).get(s.id);
+      check(cursor && typeof cursor.fixed === 'string' && Number.isSafeInteger(cursor.count) && cursor.count > 0 && Array.isArray(cursor.turns) && cursor.turns.length > 0 && cursor.turns.at(-1) === s.activeTurnId, 'unsupported', 'Claude continuation requires a captured native turn cursor');
+    }
+    if (eligible(s)) check(s.nativeId && s.profile && s.instance && s.bindingStatus === 'running' && (['codex', 'claudeAgent'].includes(s.provider) && (s.provider !== 'claudeAgent' || s.continueOnShutdown === true)), 'unsupported', 'Running sessions require Codex promptless or Claude native continuation; Claude requires continuation enabled');
   }
 }
 export function preservation(before, after, reconciledBindings = [], reconciledActivity = [], reconciledRoutes = []) {
   const failures = [], pending = [], failed = [];
   const oldModels = new Map(before.bindingModels ?? []), newModels = new Map(after.bindingModels ?? []);
+  const oldClaude = new Map(before.claudeContinuations ?? []), newClaude = new Map(after.claudeContinuations ?? []);
+  // Claude resumes the same native conversation with one explicit continuation
+  // prompt. Only its append-only turn cursor may advance; account/profile and
+  // all other binding fields remain pinned. Idle sessions retain strict hashes.
+  const continuedClaude = id => {
+    const old = before.sessions.find(s => s.id === id), next = after.sessions.find(s => s.id === id);
+    const a = oldClaude.get(id), b = newClaude.get(id);
+    return old?.provider === 'claudeAgent' && eligible(old) && old.continueOnShutdown === true && next &&
+      a && b && a.fixed === b.fixed && b.count === a.count + 1 && b.turns.length === a.turns.length + 1 &&
+      a.turns.every((turn, i) => b.turns[i] === turn) && b.turns.at(-1) === next.lastTurnId &&
+      next.lastTurnId !== old.lastTurnId && !next.marker && !next.lastError &&
+      ['nativeId', 'instance', 'provider', 'profile'].every(key => old[key] && old[key] === next[key]);
+  };
   for (const key of ['projects', 'profiles', 'bindings', 'history', 'historyContent', 'ownership', 'jobs', 'routes']) {
     const next = new Map(after[key] ?? []);
     for (const [id, hash] of before[key] ?? []) if (next.get(id) !== hash) {
@@ -152,7 +169,7 @@ export function preservation(before, after, reconciledBindings = [], reconciledA
       const normalized = oldModels.get(id)?.sha256 && newModels.get(id)?.normalized === true && oldModels.get(id).sha256 === newModels.get(id).sha256;
       const reconciled = reconciledBindings.some(entry => entry.id === id && entry.fromSha256 === hash && entry.toSha256 === next.get(id));
       const acceptedCatalog = key === 'routes' && id === 'file:connection-catalog.json' && reconciledRoutes.some(entry => entry.id === id && entry.acceptance === 'reviewed-current-catalog' && (entry.historicalEquality === 'unproven' || entry.historicalEquality === false) && entry.fromSha256 === hash && entry.toSha256 === next.get(id));
-      if (!acceptedCatalog && (key !== 'bindings' || (!normalized && !reconciled))) failures.push(`${key}:${id}`);
+      if (!acceptedCatalog && (key !== 'bindings' || (!normalized && !reconciled && !continuedClaude(id)))) failures.push(`${key}:${id}`);
     }
   }
   for (const old of before.sessions) {

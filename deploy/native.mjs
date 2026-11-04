@@ -92,6 +92,14 @@ export function standardServiceUnit(base, version) {
     'KillMode=mixed', 'OOMPolicy=continue', 'Restart=always', 'RestartSec=5', 'CPUWeight=1000', 'IOWeight=1000',
     'ManagedOOMPreference=avoid', `StandardOutput=append:${log}`, `StandardError=append:${log}`, '', '[Install]', 'WantedBy=default.target', ''].join('\n');
 }
+export function isStandardServiceUnit(text, base, version) {
+  const standard = standardServiceUnit(base, version);
+  const executable = path.join(base, 'runtime/versions', version, 't3');
+  // Older release.py quoted even a simple executable path. Accept exactly that
+  // rendering; retain strict comparison for every other service setting.
+  const legacy = standard.replace(`ExecStart=${executable} __service-launcher`, `ExecStart="${executable}" __service-launcher`);
+  return text === standard || text === legacy;
+}
 export function run(executable, args, options = {}) {
   const { acceptedExitCodes = [], ...execution } = options;
   check(remainingRunnerMs() > 0, 'deadline', 'Runner lifetime exhausted; retain the current phase for recovery');
@@ -158,7 +166,7 @@ export function makeNative(t, m, manifestPath, dependencies = {}) {
     check(actual === file && fs.realpathSync(file) === path.resolve(file), 'unsupported', 'Service unit must be the standard canonical user unit');
     const dropInPaths = run('systemctl', ['--user', 'show', t.service, '-p', 'DropInPaths', '--value']);
     const version = read(path.join(t.baseDir, 'runtime/service-state.json')).activeVersion;
-    check(fs.readFileSync(file, 'utf8') === standardServiceUnit(t.baseDir, version), 'unsupported', 'Customized service unit would be overwritten by the supported installer');
+    check(isStandardServiceUnit(fs.readFileSync(file, 'utf8'), t.baseDir, version), 'unsupported', 'Customized service unit would be overwritten by the supported installer');
     const configuration = inspectServiceDropIns(t, file, homeDir, version, dropInPaths, run);
     fs.accessSync(path.dirname(file), fs.constants.W_OK);
     return { path: file, contents: fs.readFileSync(file, 'utf8'), sha256: sha(file), ...configuration };
@@ -228,7 +236,7 @@ export function makeNative(t, m, manifestPath, dependencies = {}) {
     const proof = python('backup', request);
     verifyBackupChecksum(databaseBackup, proof, checksumSeconds);
   }
-  function desktopPort() { return JSON.parse(run('powershell.exe', ['-NoProfile', '-NonInteractive', '-File', path.join(here, 'windows-port.ps1'), '-Request', desktopRequest])).listening; }
+  function desktopPort() { return JSON.parse(run('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', path.join(here, 'windows-port.ps1'), '-Request', desktopRequest])).listening; }
   function finishDesktop(payload) {
     if (!fs.existsSync(desktopJournal)) return;
     const journal = read(desktopJournal);
@@ -252,7 +260,7 @@ export function makeNative(t, m, manifestPath, dependencies = {}) {
     const request = path.join(dir, 'request.json');
     try {
       save(request, { port: Number(new URL(t.origin).port || 80), executable: t.desktopExecutable, paths: storagePaths(), verifyOwner });
-      return JSON.parse(run('powershell.exe', ['-NoProfile', '-NonInteractive', '-File', path.join(here, 'windows-inspect.ps1'), '-Request', request]));
+      return JSON.parse(run('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', path.join(here, 'windows-inspect.ps1'), '-Request', request]));
     } finally { fs.rmSync(request, { force: true }); fs.rmdirSync(dir); }
   }
   // Read-only identity (pid and OS start time) of the desktop listener and its parent; closes and changes nothing.
@@ -262,7 +270,7 @@ export function makeNative(t, m, manifestPath, dependencies = {}) {
     const request = path.join(dir, 'request.json');
     try {
       save(request, { port: Number(new URL(t.origin).port || 80), executable: t.desktopExecutable });
-      return JSON.parse(run('powershell.exe', ['-NoProfile', '-NonInteractive', '-File', path.join(here, 'windows-listener.ps1'), '-Request', request]));
+      return JSON.parse(run('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', path.join(here, 'windows-listener.ps1'), '-Request', request]));
     } finally { fs.rmSync(request, { force: true }); fs.rmdirSync(dir); }
   }
   function linuxOwner() {
@@ -313,7 +321,7 @@ export function makeNative(t, m, manifestPath, dependencies = {}) {
   }
   function assertClosed(portRequest = desktopRequest) {
     if (t.kind === 'desktop-files') {
-      check(!JSON.parse(run('powershell.exe', ['-NoProfile', '-NonInteractive', '-File', path.join(here, 'windows-port.ps1'), '-Request', portRequest])).listening, 'recovery', 'Desktop listener was reclaimed');
+      check(!JSON.parse(run('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', path.join(here, 'windows-port.ps1'), '-Request', portRequest])).listening, 'recovery', 'Desktop listener was reclaimed');
       for (const [rel, expected] of Object.entries(t.expectedFiles)) check(sha(fileAt(resourceRoot, rel)) === expected, 'recovery', 'Old native resource changed');
     } else {
       check(run('systemctl', ['--user', 'show', t.service, '-p', 'MainPID', '--value']).trim() === '0', 'recovery', 'Service was reopened');
@@ -337,7 +345,7 @@ export function makeNative(t, m, manifestPath, dependencies = {}) {
     if (t.kind === 'desktop-files') {
       save(desktopRequest, { port: Number(new URL(t.origin).port || 80), executable: t.desktopExecutable });
       save(desktopJournal, { phase: 'prepared', release: m.id });
-      const closed = JSON.parse(run('powershell.exe', ['-NoProfile', '-NonInteractive', '-File', path.join(here, 'windows-close.ps1'), '-Request', desktopRequest], { timeout: 135000 }));
+      const closed = JSON.parse(run('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', path.join(here, 'windows-close.ps1'), '-Request', desktopRequest], { timeout: 135000 }));
       check(closed.closed, 'recovery', 'Desktop closure was not verified');
       save(desktopJournal, { phase: 'closed', release: m.id, processes: closed, ...(moveSeal ? { dormantMoveProofSha256: digest(JSON.stringify(moveSeal)) } : {}) });
     } else {

@@ -737,6 +737,7 @@ def snapshot(database):
         'jobStates': [[r['id'], r['state']] for r in rows('SELECT id,state FROM custom_worker_jobs')],
         'bindings': [],
         'bindingModels': [],
+        'claudeContinuations': [],
         'blockingOperations': [],
         'routes': [],
         'sessions': [],
@@ -785,6 +786,11 @@ def snapshot(database):
         # and runtime mode. Preserve these for idle providers too, without a turn.
         stable = stable_binding(b)
         result['bindings'].append([tid, hashed(stable)])
+        if b.get('provider_name') == 'claudeAgent' and isinstance(stable.get('resumeCursor'), dict):
+            cursor = stable['resumeCursor']
+            if isinstance(cursor.get('turnCount'), int) and isinstance(cursor.get('turnStartMessageIds'), list):
+                fixed = {**stable, 'resumeCursor': {k: v for k, v in cursor.items() if k not in ('turnCount', 'turnStartMessageIds', 'resumeSessionAt')}}
+                result['claudeContinuations'].append([tid, {'fixed': hashed(fixed), 'count': cursor['turnCount'], 'turns': cursor['turnStartMessageIds']}])
         model = binding_model(stable)
         if model: result['bindingModels'].append([tid, model])
     for t in threads:

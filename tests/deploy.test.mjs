@@ -7,7 +7,7 @@ import { spawn, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { execute, preflight, validateManifest, checkSessions, preservation, budget, digest, sha, save, verifyFiles, fileAt, DeployError } from '../deploy/core.mjs';
 import { main, remoteArgs, shellQuote, psQuote } from '../deploy/cli.mjs';
-import { makeNative } from '../deploy/native.mjs';
+import { makeNative, standardServiceUnit, isStandardServiceUnit } from '../deploy/native.mjs';
 
 const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const python = process.env.T3W_TEST_PYTHON ?? 'python3';
@@ -251,4 +251,25 @@ test('dormant recovery requires native proof and rechecks after staging', async 
   await execute(s.m, s.t, s.adapter, s.state, 'apply');
   assert.equal(s.state.phase, 'preflight-failed'); assert.equal(proofs, 2);
   assert.equal(s.calls.some(c => c[0] === 'activate'), false);
+});
+
+test('Claude continuation admits only enabled native sessions and one preserved cursor append', () => {
+  const b = blank(); b.sessions = [{ ...session(), provider: 'claudeAgent' }];
+  b.bindings = [['working', 'old-binding']]; b.claudeContinuations = [['working', { fixed: 'account-model-native', count: 1, turns: ['old-turn'] }]];
+  checkSessions(b);
+  assert.throws(() => checkSessions({ ...b, sessions: [{ ...b.sessions[0], continueOnShutdown: false }] }));
+  const a = structuredClone(b); a.bindings[0][1] = 'new-binding'; a.sessions[0].lastTurnId = 'continued';
+  a.claudeContinuations[0][1] = { fixed: 'account-model-native', count: 2, turns: ['old-turn', 'continued'] };
+  assert.equal(preservation(b, a).ok, true);
+  for (const mutate of [x => x.claudeContinuations[0][1].fixed = 'different-account', x => x.claudeContinuations[0][1].turns[0] = 'lost-history', x => x.claudeContinuations[0][1].count = 3, x => x.sessions[0].marker = true, x => x.sessions[0].nativeId = 'new-native']) {
+    const bad = structuredClone(a); mutate(bad); assert.equal(preservation(b, bad).ok, false);
+  }
+});
+
+test('legacy service executable quoting preserves strict unit validation', () => {
+  const base = '/home/test/.t3', version = '0.0.45+custom.52';
+  const standard = standardServiceUnit(base, version);
+  const quoted = standard.replace(`ExecStart=${base}/runtime/versions/${version}/t3 `, `ExecStart="${base}/runtime/versions/${version}/t3" `);
+  assert.ok(isStandardServiceUnit(quoted, base, version));
+  assert.equal(isStandardServiceUnit(quoted.replace('KillMode=mixed', 'KillMode=control-group'), base, version), false);
 });
