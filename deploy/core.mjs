@@ -144,7 +144,7 @@ export function checkSessions(snapshot) {
     if (eligible(s)) check(s.nativeId && s.profile && s.instance && s.bindingStatus === 'running' && (['codex', 'claudeAgent'].includes(s.provider) && (s.provider !== 'claudeAgent' || s.continueOnShutdown === true)), 'unsupported', 'Running sessions require Codex promptless or Claude native continuation; Claude requires continuation enabled');
   }
 }
-export function preservation(before, after, reconciledBindings = [], reconciledActivity = [], reconciledRoutes = []) {
+export function preservation(before, after, reconciledBindings = [], reconciledActivity = [], reconciledRoutes = [], continuationSessions = before.sessions) {
   const failures = [], pending = [], failed = [];
   const oldModels = new Map(before.bindingModels ?? []), newModels = new Map(after.bindingModels ?? []);
   const oldClaude = new Map(before.claudeContinuations ?? []), newClaude = new Map(after.claudeContinuations ?? []);
@@ -152,7 +152,7 @@ export function preservation(before, after, reconciledBindings = [], reconciledA
   // prompt. Only its append-only turn cursor may advance; account/profile and
   // all other binding fields remain pinned. Idle sessions retain strict hashes.
   const continuedClaude = id => {
-    const old = before.sessions.find(s => s.id === id), next = after.sessions.find(s => s.id === id);
+    const old = continuationSessions.find(s => s.id === id), next = after.sessions.find(s => s.id === id);
     const a = oldClaude.get(id), b = newClaude.get(id);
     return old?.provider === 'claudeAgent' && eligible(old) && old.continueOnShutdown === true && next &&
       a && b && a.fixed === b.fixed && b.count === a.count + 1 && b.turns.length === a.turns.length + 1 &&
@@ -285,4 +285,8 @@ export async function execute(m, t, adapter, state, command) {
     persist(['handoff', 'verifying'].includes(state.phase) ? 'recovery-required' : 'preflight-failed');
   }
   return state;
+}
+
+export function preservationClosed(closed, after, before, bindings = [], routes = []) {
+  return preservation({ ...closed, sessions: [] }, after, bindings, [], routes, before.sessions);
 }

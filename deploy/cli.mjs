@@ -28,7 +28,7 @@ export function checkClaim(locations, manifestHash) {
   check(/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$/.test(claim.id), 'conflict', 'Invalid existing claim');
   const deployment = path.join(locations.root, claim.id);
   const receipt = readDeployment({ ...locations, deployment, receipt: path.join(deployment, 'receipt.json') });
-  check(receipt.id === claim.id && receipt.manifestHash === claim.manifestHash && (['accepted', 'cancelled'].includes(receipt.phase) || (receipt.phase === 'superseded' && receipt.supersession.successor.manifestHash === manifestHash)), 'conflict', 'Another release owns an unfinished deployment; inspect its receipt');
+  check(receipt.id === claim.id && receipt.manifestHash === claim.manifestHash && (['accepted', 'cancelled', 'audit-closed'].includes(receipt.phase) || (receipt.phase === 'superseded' && receipt.supersession.successor.manifestHash === manifestHash)), 'conflict', 'Another release owns an unfinished deployment; inspect its receipt');
 }
 export async function hostRun(request, requestPath) {
   const { manifest: m, target: t, manifestPath, command } = request;
@@ -47,6 +47,8 @@ export async function hostRun(request, requestPath) {
     const adapter = makeNative(t, m, manifestPath, { requestPath });
     return command === 'measure-backup' ? adapter.measureBackup(request.recovery) : adapter.adoptBackup(request.recovery);
   }
+  if (state.phase === 'audit-closed') { check(['close-audit', 'status'].includes(command), 'recovery', 'Audit closed; use a distinct release'); return state; }
+  if (command === 'close-audit') { checkClaim(locations, manifestHash); return makeNative(t, m, manifestPath).closeAudit(state); }
   if (command === 'reconcile') {
     const adapter = makeNative(t, m, manifestPath, { requestPath });
     return adapter.reconcile(request.recovery);
@@ -83,11 +85,11 @@ export async function main(argv) {
   }
   const { positionals, values } = parseArgs({ args: argv, allowPositionals: true, options: { config: { type: 'string' }, manifest: { type: 'string' }, target: { type: 'string', multiple: true }, spec: { type: 'string' }, out: { type: 'string' }, recovery: { type: 'string' }, 'manifest-sha': { type: 'string' }, 'dry-run': { type: 'boolean' } } });
   const [command] = positionals;
-  if (!command || command === 'help') return { usage: 't3w deploy manifest --spec SPEC --out MANIFEST | plan|stage|apply|resume|status|cancel --config HOSTS --manifest MANIFEST --target HOST [--target HOST] [--dry-run for cancel]', note: 'cancel preserves staged payload and original receipt; apply/resume starts a bounded independent host runner. No implicit all-host deployment.' };
+  if (!command || command === 'help') return { usage: 't3w deploy manifest --spec SPEC --out MANIFEST | plan|stage|apply|resume|status|cancel|close-audit --config HOSTS --manifest MANIFEST --target HOST [--target HOST] [--dry-run for cancel]', note: 'cancel preserves staged payload and original receipt; apply/resume starts a bounded independent host runner. No implicit all-host deployment.' };
   check(positionals.length === 1, 'usage', 'Unexpected positional arguments');
   if (command === 'manifest') { check(values.spec && values.out, 'usage', 'manifest needs --spec and --out'); return makeManifest(path.resolve(values.spec), path.resolve(values.out)); }
-  check(['plan', 'stage', 'apply', 'resume', 'status', 'cancel', 'reconcile', 'measure-backup', 'adopt-backup'].includes(command) && values.config && values.manifest && values.target?.length, 'usage', 'Choose plan/stage/apply/resume/status/cancel and explicit config, manifest and targets');
-  check(!values['dry-run'] || ['cancel', 'reconcile', 'measure-backup', 'adopt-backup'].includes(command), 'usage', '--dry-run is supported for cancel only');
+  check(['plan', 'stage', 'apply', 'resume', 'status', 'cancel', 'reconcile', 'measure-backup', 'adopt-backup', 'close-audit'].includes(command) && values.config && values.manifest && values.target?.length, 'usage', 'Choose plan/stage/apply/resume/status/cancel and explicit config, manifest and targets');
+  check(!values['dry-run'] || ['cancel', 'reconcile', 'measure-backup', 'adopt-backup', 'close-audit'].includes(command), 'usage', '--dry-run is supported for cancel only');
   const config = read(path.resolve(values.config)), manifestPath = path.resolve(values.manifest), m = validateManifest(read(manifestPath)), hash = digest(JSON.stringify(m));
   check(!values['manifest-sha'] || values['manifest-sha'] === hash, 'manifest', 'Remote release manifest differs from the coordinator');
   check(new Set(values.target).size === values.target.length, 'usage', 'Duplicate target');
@@ -120,6 +122,13 @@ export async function main(argv) {
         save(requestPath, { node: process.execPath, entry, manifest: m, manifestPath, target: t, command, recovery: read(path.resolve(values.recovery)) });
         const launched = JSON.parse(run(t.python, [path.join(here, 'host.py'), 'launch', requestPath]));
         results.push({ target: name, result: { ...launched, runnerReceipt: requestPath + '.runner.json', receipt: locations.receipt } }); continue;
+      }
+      if (state.phase === 'audit-closed') { check(['close-audit', 'status'].includes(command), 'recovery', 'Audit closed; use a distinct release'); results.push({ target: name, result: state }); continue; }
+      if (command === 'close-audit') {
+        const requestPath = path.join(locations.deployment, 'request-' + crypto.randomUUID() + '.json');
+        save(requestPath, { node: process.execPath, entry, manifest: m, manifestPath, target: t, command });
+        const result = JSON.parse(run(t.python, [path.join(here, 'host.py'), 'guard', requestPath], { timeout: 900000, acceptedExitCodes: [2, 3, 4] }));
+        results.push({ target: name, result }); continue;
       }
       if (command === 'reconcile') {
         check(!t.remote && values.recovery && state.phase === 'not-started', 'recovery', 'Reconcile locally with an exact decision before staging a distinct successor');

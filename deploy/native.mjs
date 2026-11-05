@@ -4,7 +4,7 @@ import path from 'node:path';
 import os from 'node:os';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { check, checkDatabase, DeployError, read, save, sha, digest, fileAt, verifyFiles, inventory, budget, preflight, preservation } from './core.mjs';
+import { check, checkDatabase, DeployError, read, save, sha, digest, fileAt, verifyFiles, inventory, budget, preflight, preservation, preservationClosed } from './core.mjs';
 import { inspectServiceDropIns } from './service-config.mjs';
 import { assertUnactivated, readDeployment } from './cancel.mjs';
 import { inspectRecovery, reviewRecovery, assertMeasurementPlan, assertAdoption, reconcilablePhases } from './recovery.mjs';
@@ -577,7 +577,23 @@ export function makeNative(t, m, manifestPath, dependencies = {}) {
       save(path.join(locations.deployment, 'cancelled.json'), terminal);
       return readDeployment(locations);
     },
-    async inspect() {
+    async closeAudit(state) {
+      check(['recovery-required', 'accepted'].includes(state.phase), 'recovery', 'Only completed activation can close its historical audit');
+      check(!fs.existsSync(path.join(locations.root, 'release-in-progress.json')), 'conflict', 'Another release is in progress');
+      const claim = read(locations.claim);
+      check(claim.id === m.id && claim.manifestHash === digest(JSON.stringify(m)), 'conflict', 'A different deployment owns the claim');
+      const journal = read(t.kind === 'boot-service' ? path.join(locations.deployment, 'service-activation.json') : desktopJournal);
+      check(journal.phase === 'started', 'recovery', 'Activation has not durably completed startup');
+      const live = await adapter.inspect(false);
+      const payload = m.payloads.find(p => p.platform === t.platform);
+      const server = payload.files.find(f => f.path === (t.kind === 'boot-service' ? 't3' : 'server.asar'));
+      const client = payload.files.find(f => f.path === 'client/index.html');
+      check(live.environmentId === t.environmentId && live.version === m.version && live.portOwnerVerified && !live.conflictingUpdate && live.installSha256 === server.sha256 && live.clientSha256 === client.sha256, 'recovery', 'Current installation, serving identity or health differs from completed deployment');
+      save(path.join(locations.deployment, 'audit-closed.json'), { phase: 'audit-closed', originalReceiptSha256: sha(locations.receipt), observed: live, closedAt: new Date().toISOString(), historicalEqualityVerified: false });
+      fs.unlinkSync(locations.claim);
+      return readDeployment(locations);
+    },
+    async inspect(includeSnapshot = true) {
       const descriptor = await get('/.well-known/t3/environment');
       const state = t.kind === 'boot-service' ? read(path.join(t.baseDir, 'runtime/service-state.json')) : null;
       check(descriptor.capabilities?.serverUpdateThreadContinuation === true, 'unsupported', 'Server does not advertise native update continuation');
@@ -587,7 +603,7 @@ export function makeNative(t, m, manifestPath, dependencies = {}) {
       if (state) check(state.protocol === 3 && state.activeVersion === descriptor.serverVersion, 'unsupported', 'Boot launcher protocol/version differs');
       return { environmentId: descriptor.environmentId, version: descriptor.serverVersion, capabilities: descriptor.capabilities,
         kind: t.kind, platform: `${platform}-${arch}`, portOwnerVerified: t.kind === 'boot-service' ? (dependencies.linuxOwner ?? linuxOwner)() : windowsInfo().portOwnerVerified,
-        clientSha256: digest(await get('/', false)), installSha256: sha(currentServer()), conflictingUpdate: state?.update?.status === 'pending', snapshot: snapshot() };
+        clientSha256: digest(await get('/', false)), installSha256: sha(currentServer()), conflictingUpdate: state?.update?.status === 'pending', snapshot: includeSnapshot ? snapshot() : undefined };
     },
     async validatePayload(payload, staged) {
       verifyFiles(sourceRoot, payload.files, true);
@@ -766,8 +782,8 @@ export function makeNative(t, m, manifestPath, dependencies = {}) {
           }
           if (activityReconciliation) recovery = preservation(before, result.live.snapshot, [...(bindingReconciliation?.entries ?? []), ...(activityReconciliation.bindingEntries ?? [])], activityReconciliation.entries, catalogReconciliation?.entries);
           if (fs.existsSync(closedSnapshot)) {
-            const closed = read(closedSnapshot); closed.sessions = [];
-            const closedProof = preservation(closed, result.live.snapshot, activityReconciliation?.bindingEntries, [], catalogReconciliation?.entries);
+            const closed = read(closedSnapshot);
+            const closedProof = preservationClosed(closed, result.live.snapshot, before, activityReconciliation?.bindingEntries, catalogReconciliation?.entries);
             recovery.failures.push(...closedProof.failures); recovery.ok &&= closedProof.ok;
           }
           last = { ...recovery, ...(catalogReconciliation ? { catalogReconciliation } : {}), ...(bindingReconciliation ? { bindingReconciliation } : {}), ...(activityReconciliation ? { activityReconciliation } : {}), environmentId: result.live.environmentId, version: result.live.version, clientSha256: result.live.clientSha256 };

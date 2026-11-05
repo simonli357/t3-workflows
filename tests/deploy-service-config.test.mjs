@@ -107,3 +107,22 @@ test('closed-phase drift after capacity/backup preparation blocks install and re
   await execute(f.manifest, f.target, f.adapter, f.state, 'resume'); assert.equal(f.state.phase, 'recovery-required'); assert.equal(f.control.installs, 0);
   fs.writeFileSync(f.drop, network); await execute(f.manifest, f.target, f.adapter, f.state, 'resume'); assert.equal(f.state.phase, 'accepted', JSON.stringify(f.state)); assert.equal(f.control.stops, 1); assert.equal(f.control.installs, 1);
 });
+
+test('close-audit releases only a healthy completed exact claim and retains original warnings', async t => {
+  const f = fixture(t), deployment = path.join(f.baseDir, 'runtime/t3w-deploy', f.manifest.id);
+  fs.mkdirSync(deployment, { recursive: true });
+  const receipt = path.join(deployment, 'receipt.json'), claim = path.join(path.dirname(deployment), 'claim.json');
+  const state = { id: f.manifest.id, phase: 'recovery-required', manifestHash: digest(JSON.stringify(f.manifest)), targetHash: digest(JSON.stringify(f.target)), proof: { failures: ['bindings:historical-warning'] } };
+  save(receipt, state); const original = sha(receipt);
+  save(claim, { id: state.id, manifestHash: state.manifestHash });
+  const journal = path.join(deployment, 'service-activation.json'); save(journal, { phase: 'closed' });
+  f.adapter.inspect = async () => ({ environmentId: f.target.environmentId, version: f.manifest.version, portOwnerVerified: true, conflictingUpdate: false, installSha256: f.manifest.payloads[0].files[0].sha256, clientSha256: f.manifest.payloads[0].files[1].sha256 });
+  await assert.rejects(f.adapter.closeAudit(state), /durably completed/);
+  save(journal, { phase: 'started' }); save(claim, { id: 'newer', manifestHash: 'newer' });
+  await assert.rejects(f.adapter.closeAudit(state), /different deployment/);
+  assert.equal(JSON.parse(fs.readFileSync(claim)).id, 'newer');
+  save(claim, { id: state.id, manifestHash: state.manifestHash });
+  const result = await f.adapter.closeAudit(state);
+  assert.equal(result.phase, 'audit-closed'); assert.equal(result.closure.historicalEqualityVerified, false);
+  assert.deepEqual(result.proof.failures, state.proof.failures); assert.equal(sha(receipt), original); assert.equal(fs.existsSync(claim), false);
+});

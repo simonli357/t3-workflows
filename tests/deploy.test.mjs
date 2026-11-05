@@ -1,3 +1,4 @@
+import { preservationClosed } from '../deploy/core.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -261,8 +262,11 @@ test('Claude continuation admits only enabled native sessions and one preserved 
   const a = structuredClone(b); a.bindings[0][1] = 'new-binding'; a.sessions[0].lastTurnId = 'continued';
   a.claudeContinuations[0][1] = { fixed: 'account-model-native', count: 2, turns: ['old-turn', 'continued'] };
   assert.equal(preservation(b, a).ok, true);
+  const closed = structuredClone(b); closed.sessions[0].status = "interrupted"; closed.sessions[0].activeTurnId = null;
+  assert.equal(preservationClosed(closed, a, b).ok, true);
+  assert.equal(preservation({ ...closed, sessions: [] }, a).ok, false);
   for (const mutate of [x => x.claudeContinuations[0][1].fixed = 'different-account', x => x.claudeContinuations[0][1].turns[0] = 'lost-history', x => x.claudeContinuations[0][1].count = 3, x => x.sessions[0].marker = true, x => x.sessions[0].nativeId = 'new-native']) {
-    const bad = structuredClone(a); mutate(bad); assert.equal(preservation(b, bad).ok, false);
+    const bad = structuredClone(a); mutate(bad); assert.equal(preservation(b, bad).ok, false); assert.equal(preservationClosed(closed, bad, b).ok, false);
   }
 });
 

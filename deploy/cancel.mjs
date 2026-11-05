@@ -20,6 +20,13 @@ export function readDeployment(locations) {
   canonical(locations.deployment, true); canonical(locations.receipt);
   const state = read(locations.receipt);
   check(state.id === path.basename(locations.deployment), 'cancel', 'Receipt deployment id differs from its location');
+  const closedFile = path.join(locations.deployment, 'audit-closed.json');
+  if (fs.existsSync(closedFile)) {
+    canonical(closedFile);
+    const closure = read(closedFile);
+    check(closure.phase === 'audit-closed' && closure.originalReceiptSha256 === sha(locations.receipt) && closure.historicalEqualityVerified === false, 'recovery', 'Audit closure differs from retained original receipt');
+    return { ...state, phase: 'audit-closed', originalPhase: state.phase, closure };
+  }
   const superseded = readSuperseded(locations, state);
   check(!superseded || !fs.existsSync(cancelledFile), 'recovery', 'Conflicting terminal recovery evidence');
   if (superseded) return superseded;
