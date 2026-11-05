@@ -288,6 +288,17 @@ class ReleaseTests(unittest.TestCase):
                 raw.execute('CREATE TABLE newer_v1(value TEXT)')
             release.switchover_rollback(rollback, job)
 
+    def test_crashed_service_uses_launcher_version_only_when_stopped(self):
+        args = type('Args', (), {'isolated': False, 'port': 9000})()
+        state = {'protocol': 3, 'activeVersion': 'selected'}
+        refused = release.urllib.error.URLError(ConnectionRefusedError(111, 'Connection refused'))
+        with patch.object(release, 'WINDOWS', False), patch.object(release, 'descriptor', side_effect=refused):
+            with patch.object(release, 'run', return_value='failed'):
+                self.assertEqual(release.running_version(args, state), 'selected')
+            with patch.object(release, 'run', return_value='activating'):
+                with self.assertRaises(release.urllib.error.URLError):
+                    release.running_version(args, state)
+
     def test_wrong_version_and_stall_are_unhealthy(self):
         with patch.object(release, 'descriptor', return_value={'serverVersion': 'wrong'}):
             with self.assertRaisesRegex(RuntimeError, 'version mismatch'):

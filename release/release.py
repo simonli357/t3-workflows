@@ -19,6 +19,7 @@ import sys
 import tarfile
 import zipfile
 import time
+import urllib.error
 import urllib.request
 import uuid
 from repack import repack, read_file
@@ -446,6 +447,22 @@ def descriptor(port, timeout=5):
         return json.load(response)
 
 
+def running_version(args, previous_state):
+    if args.isolated:
+        return previous_state['activeVersion']
+    try:
+        return descriptor(args.port)['serverVersion']
+    except urllib.error.URLError:
+        # A crashed Linux service is when a fix is needed most: trust the launcher's
+        # selection, but only while systemd confirms the service is not running.
+        if WINDOWS or previous_state is None:
+            raise
+        state = run(['systemctl', '--user', 'show', 't3code.service', '-p', 'ActiveState', '--value'], capture=True)
+        if state not in ('failed', 'inactive'):
+            raise
+        return previous_state['activeVersion']
+
+
 def health(port, version, seconds, stall_ms, logs, alive=lambda: True, ready_seconds=900, protocol=None):
     def probe():
         started = time.monotonic()
@@ -636,7 +653,7 @@ def activate(args, built, job, rehearsal):
     previous_state = read(state) if state.exists() else None
     if previous_state is not None and (previous_state.get('protocol') != 3 or previous_state.get('update')):
         raise RuntimeError('Launcher protocol differs or a launcher update is pending')
-    previous_version = descriptor(args.port)['serverVersion'] if not args.isolated else previous_state['activeVersion']
+    previous_version = running_version(args, previous_state)
     if previous_state is not None and previous_state['activeVersion'] != previous_version:
         raise RuntimeError('Running version differs from launcher selection; finish the existing release first')
     previous = home / 'runtime/versions' / previous_version
@@ -709,7 +726,7 @@ def switchover_activate(args, built, job, plan):
         raise RuntimeError('Launcher protocol differs or a launcher update is pending')
     if args.isolated and previous_state is None:
         raise RuntimeError('Isolated switchover needs runtime/service-state.json naming the retained version')
-    previous_version = descriptor(args.port)['serverVersion'] if not args.isolated else previous_state['activeVersion']
+    previous_version = running_version(args, previous_state)
     if previous_state is not None and previous_state['activeVersion'] != previous_version:
         raise RuntimeError('Running version differs from launcher selection; finish the existing release first')
     previous = home / 'runtime/versions' / previous_version
