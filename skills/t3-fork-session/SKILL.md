@@ -143,7 +143,7 @@ host and the entire allocated start input unchanged on retries.
 2. Keep the assigned task intact, including issue repository/number, acceptance
    criteria and user constraints. Follow the existing title conventions. When
    forking an existing conversation, supersede stale assignments with the current
-   task. Include the worker reporting instruction below in the initial prompt.
+   task. Include the 5-minute wait line from Reports to the master in the initial prompt.
 3. Generate a destination UUID once and retain it for retries. Fresh allocation
    also needs a stable assignment ID; preserve the entire pinned request and
    start input, including prompt and title. Do not invent a master ID.
@@ -271,7 +271,7 @@ fresh replacement uses the assessed path above, not a new manual account ranking
   starts from a context prompt, fresh unless the user adds "from base". Once the
   worker has no running turn (the user can Stop it in T3), write its full
   assignment, progress, branch and worktree, evidence and next steps to a file
-  with the reporting instruction and only the rules the user actually gave, use the fresh allocation path above (or `t3w fork --mcp-plan`
+  with the 5-minute wait line and only the rules the user actually gave, use the fresh allocation path above (or `t3w fork --mcp-plan`
   and `t3_worker_spawn` for a requested fork). Renewal preserves applicable profile
   constraints and does not itself justify reassessment. Use the model suffix, adding 2 to the
   keyword if the name would not change (`c344_camera_opus` → `c344_camera2_opus`).
@@ -437,25 +437,9 @@ native process.
 
 ## Reports to the master
 
-Include this instruction in every worker's initial assignment:
+T3 already gives every worker its reporting rules; do not repeat them in assignments.
+Add only this line to every worker's initial assignment:
 
-> Carry this assignment through all its stages within your authority, then use
-> `t3_worker_report` once: when the entire assignment is done, or, after the
-> server-enforced communication window expires, when you are genuinely blocked.
-> During the window only explicit `outcome: "done"` for the entire assignment may
-> pass. A genuine blocker or need for user/master input is not an exemption.
-> If refused, decide what you would do as the master or user, investigate
-> alternatives, and continue within your authority. Never bypass permissions.
-> Pass `outcome: "done"` or `"blocked"`, a `summary` of at most 300 characters
-> in one or two plain sentences giving the outcome, including any failure,
-> what remains and the exact action needed for a blocker. Put hashes, IDs, test
-> counts, long paths and technical detail in one short evidence file (about half
-> a page) or a link; no separate evidence folders or long handoffs unless asked.
-> For a blocker set `needs: "user"` or `"master"`. Never
-> list things you did not do. Use a stable `clientRequestId` for retries. Before
-> reporting a blocker, investigate, wait, or try another approach within your
-> authority; resolve what you can yourself. Progress stays in this worker
-> conversation. This rule also applies to `t3_session_send` and any other channel.
 > Never block in one tool call for more than 5 minutes: run longer work in the
 > background and check it in waits of 5 minutes or less, so messages reach you.
 

@@ -45,7 +45,7 @@ recommendation or choosing what the user left open.
    version. An explicit account cannot silently lower effort or switch model.
 4. Call `t3_start_allocated_assignment` with `kind: "worker"`, that request, the
    target `projectId`, convention-based `title` and complete `prompt` including
-   the worker reporting instruction. T3 authenticates the master and inherits its
+   the 5-minute wait line. T3 authenticates the master and inherits its
    permission/interaction modes. Do not supply an owner ID or invent mode fields.
 5. Inspect returned worker/assignment receipts and provider state. `submitted`
    means startup was accepted, not that the task completed or quota was guaranteed.
