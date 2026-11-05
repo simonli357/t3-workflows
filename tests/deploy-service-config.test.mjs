@@ -1,3 +1,4 @@
+import { checkClaim, main } from '../deploy/cli.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -122,7 +123,18 @@ test('close-audit releases only a healthy completed exact claim and retains orig
   await assert.rejects(f.adapter.closeAudit(state), /different deployment/);
   assert.equal(JSON.parse(fs.readFileSync(claim)).id, 'newer');
   save(claim, { id: state.id, manifestHash: state.manifestHash });
+  const healthy = f.adapter.inspect;
+  for (const change of [{ version: 'other' }, { environmentId: 'other' }, { portOwnerVerified: false }, { conflictingUpdate: true }, { installSha256: 'bad' }, { clientSha256: 'bad' }]) {
+    f.adapter.inspect = async () => ({ ...await healthy(), ...change });
+    await assert.rejects(f.adapter.closeAudit(state), /health differs/);
+    assert.equal(sha(receipt), original); assert.equal(fs.existsSync(claim), true);
+    assert.equal(fs.existsSync(path.join(deployment, 'audit-closed.json')), false);
+  }
+  f.adapter.inspect = healthy;
   const result = await f.adapter.closeAudit(state);
   assert.equal(result.phase, 'audit-closed'); assert.equal(result.closure.historicalEqualityVerified, false);
   assert.deepEqual(result.proof.failures, state.proof.failures); assert.equal(sha(receipt), original); assert.equal(fs.existsSync(claim), false);
+  assert.doesNotThrow(() => checkClaim({ claim, root: path.dirname(deployment) }, digest('distinct-next-release')));
 });
+
+test('close-audit rejects dry-run before reading config or mutating', async () => { await assert.rejects(main(['close-audit', '--dry-run', '--config', 'missing', '--manifest', 'missing', '--target', 'fixture']), /dry-run/); });

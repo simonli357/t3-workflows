@@ -85,11 +85,11 @@ export async function main(argv) {
   }
   const { positionals, values } = parseArgs({ args: argv, allowPositionals: true, options: { config: { type: 'string' }, manifest: { type: 'string' }, target: { type: 'string', multiple: true }, spec: { type: 'string' }, out: { type: 'string' }, recovery: { type: 'string' }, 'manifest-sha': { type: 'string' }, 'dry-run': { type: 'boolean' } } });
   const [command] = positionals;
-  if (!command || command === 'help') return { usage: 't3w deploy manifest --spec SPEC --out MANIFEST | plan|stage|apply|resume|status|cancel|close-audit --config HOSTS --manifest MANIFEST --target HOST [--target HOST] [--dry-run for cancel]', note: 'cancel preserves staged payload and original receipt; apply/resume starts a bounded independent host runner. No implicit all-host deployment.' };
+  if (!command || command === 'help') return { usage: 't3w deploy manifest --spec SPEC --out MANIFEST | plan|stage|apply|resume|status|cancel|close-audit --config HOSTS --manifest MANIFEST --target HOST [--target HOST] [--dry-run for cancel]', note: 'close-audit releases a healthy completed activation claim while retaining historical warnings and original receipt; cancel preserves staged payload and original receipt; apply/resume starts a bounded independent host runner. No implicit all-host deployment.' };
   check(positionals.length === 1, 'usage', 'Unexpected positional arguments');
   if (command === 'manifest') { check(values.spec && values.out, 'usage', 'manifest needs --spec and --out'); return makeManifest(path.resolve(values.spec), path.resolve(values.out)); }
   check(['plan', 'stage', 'apply', 'resume', 'status', 'cancel', 'reconcile', 'measure-backup', 'adopt-backup', 'close-audit'].includes(command) && values.config && values.manifest && values.target?.length, 'usage', 'Choose plan/stage/apply/resume/status/cancel and explicit config, manifest and targets');
-  check(!values['dry-run'] || ['cancel', 'reconcile', 'measure-backup', 'adopt-backup', 'close-audit'].includes(command), 'usage', '--dry-run is supported for cancel only');
+  check(!values['dry-run'] || ['cancel', 'reconcile', 'measure-backup', 'adopt-backup'].includes(command), 'usage', '--dry-run is supported for cancel only');
   const config = read(path.resolve(values.config)), manifestPath = path.resolve(values.manifest), m = validateManifest(read(manifestPath)), hash = digest(JSON.stringify(m));
   check(!values['manifest-sha'] || values['manifest-sha'] === hash, 'manifest', 'Remote release manifest differs from the coordinator');
   check(new Set(values.target).size === values.target.length, 'usage', 'Duplicate target');
