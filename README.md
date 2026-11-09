@@ -62,8 +62,8 @@ To work across machines, link their T3 servers once with `t3w peer link SSH_ALIA
 
 For worker profile changes, use `t3w worker-profile --thread-id UUID --provider AD --model sol` to generate validated `t3_worker_control` input. For orchestration succession and user-requested reclaim of selected handed-off workers, see the global skill’s [handoff workflow](skills/t3-fork-session/references/orchestrator-handoff.md).
 
-Peer messages on `sessionMessageConfirmation` servers require reviewing a warning
-and confirming the exact message before delivery. Normal worker assignments and
+Peer messages are sent on the first call, from the authenticated sender; the
+recipient is checked again at delivery. Normal worker assignments and
 reports retain their dedicated tools. On `workerRetirementWarning` servers, a
 retired session can launch and supervise new workers; its first successful action
 returns one informational warning, remembered across restarts. No confirmation

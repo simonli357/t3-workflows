@@ -27,7 +27,7 @@ Guards that wake the master, with the command to restart them for <successor ID>
 
 The successor first lists its workers and reads only the summaries/evidence it
 needs. Restart relevant guards. Send a peer the new ID only when coordination
-requires it, using the session-send confirmation flow. Workers report with
+requires it, with `t3_session_send`. Workers report with
 `t3_worker_report`; they do not need a remembered master ID. Do not notify every
 past master or send workers acknowledgment/correction turns merely to announce
 the ownership change.

@@ -24,15 +24,15 @@
     },
     {
       "name": "one-time retirement warning",
-      "requirement": "Retirement alone never blocks coordination or new worker launches. The first successful action by a retired session returns one informational warning without requiring confirmation or reclaim; persist the warning receipt across calls, concurrent launches, repeated handoffs and server restarts. Existing worker ownership and exact-message peer confirmations still apply. Reclaim is only needed to take back selected previously transferred workers at the user's request.",
+      "requirement": "Retirement alone never blocks coordination or new worker launches. The first successful action by a retired session returns one informational warning without requiring confirmation or reclaim; persist the warning receipt across calls, concurrent launches, repeated handoffs and server restarts. Existing worker ownership still applies. Reclaim is only needed to take back selected previously transferred workers at the user's request.",
       "capability": "workerRetirementWarning",
       "status": "active on sliara in custom stable .30; linked hosts require their own compatible update"
     },
     {
-      "name": "confirmed peer messaging and selected worker reclaim",
-      "requirement": "Dedicated worker tools enforce current ownership. Peer sends require an exact-message confirmation after a recipient/project/necessity warning; sender and recipient are rechecked before local or linked delivery. Completed handoffs retire predecessors. At a new direct user request, a former master can atomically reclaim selected historical workers and their undelivered reports, preserving ongoing work and leaving the successor's other workers in place.",
-      "capability": "sessionMessageConfirmation",
-      "status": "active on sliara in custom stable .29; linked hosts require their own compatible update"
+      "name": "direct peer messaging and selected worker reclaim",
+      "requirement": "Dedicated worker tools enforce current ownership. Peer sends are delivered on the first call with no confirmation step: the sender is the authenticated session, a request ID never delivers twice, and the recipient is rechecked before local or linked delivery, where a send to the sender's own worker or master is refused. Completed handoffs retire predecessors. At a new direct user request, a former master can atomically reclaim selected historical workers and their undelivered reports, preserving ongoing work and leaving the successor's other workers in place.",
+      "capability": "workerReclaim",
+      "status": "reclaim active since custom stable .29; direct peer sends replace the confirmation step in the release after custom.52, and a linked host still on an older build keeps asking its own senders to confirm"
     },
     {
       "name": "bounded session message reads",
