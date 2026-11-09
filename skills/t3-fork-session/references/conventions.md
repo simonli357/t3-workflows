@@ -24,8 +24,8 @@ handoffs can change the destination profile after copying the source. Preserve s
 to a base or modify its context while forking. Reuse an owned worker for corrections.
 
 Every worker creation, fresh or fork, follows the [selection policy](selection-policy.md):
-the master scores the task, the server always recommends model/effort, account and
-computer, and user choices are recorded overrides. Effort comes from the
+the server always recommends model/effort, account and computer, and records what the
+user chose instead. Effort comes from the
 difficulty/stakes table unless the user specified it; explicit options stay exact. A
 fork keeps its source's profile. Selections are checked against the live catalog.
 Preserve supported inherited options, explicit constraints, and the chosen profile

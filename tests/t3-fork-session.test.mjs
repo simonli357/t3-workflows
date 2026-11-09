@@ -327,7 +327,10 @@ test("self-fork plans need no base or caller-provided master identity", () => {
   assert.throws(() => planFork(data.shell, data.config, { ...data.input, selfFork: true }), /requires --handoff-plan/);
 });
 
-test("worker plans require the master's assessment and carry override reasons", () => {
+test("worker plans need no assessment and carry a tier, exact scores or override notes when given", () => {
+  assert.deepEqual(recommendationInput({}), {});
+  assert.deepEqual(recommendationInput({ tier: "hard", "override-account": "user named ES" }), { tier: "hard", overrides: { account: "user named ES" } });
+  assert.throws(() => recommendationInput({ tier: "huge" }), /--tier must be routine, normal or hard/);
   assert.throws(() => recommendationInput({ difficulty: "3", stakes: "4" }), /--difficulty-reason, --stakes-reason/);
   assert.throws(() => recommendationInput({ difficulty: "11", "difficulty-reason": "a", stakes: "4", "stakes-reason": "b" }), /--difficulty must be an integer/);
   const recommendation = recommendationInput({ difficulty: "3", "difficulty-reason": "Routine", stakes: "4", "stakes-reason": "Reversible", "override-model": "user specified ES Opus xhigh" });
