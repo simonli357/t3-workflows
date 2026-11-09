@@ -519,11 +519,11 @@ acknowledgment to the worker.
   under its reserve is not a reason to move the work to a worse computer or stop.
   Sessions run in project folders, so the worker first needs a job:
   `workenv job --session <id> --cwd <project>` falls back to the computer's next
-  job disk when the first is short. From that job, `workenv place --disk N` picks
-  a disk or connected computer with room for new data, and `workenv move` takes
-  finished inactive outputs off a full disk (see the `workenv-cleanup` skill).
-  `job`, `place --apply` and `move --apply` also need `--name "<clear English name>"
-  --summary "<one sentence>" --description "<one paragraph>" --issue <URL or none>`.
+  job disk when the first is short. From that job, `workenv capacity --disk N`
+  moves older idle jobs on a full disk away, least recently used first, until the
+  job fits (see the `workenv-cleanup` skill). `job` also needs `--name "<clear
+  English name>" --summary "<one sentence>" --description "<one paragraph>"
+  --issue <URL or none>`.
   Send the worker the exact commands that worked. Tell the user only when
   `workenv capacity` shows nothing configured fits, naming the computer and shortfall.
 - **Still working:** let the worker continue. Do not interrupt it, queue redundant
