@@ -82,11 +82,15 @@ accounting can be renewed on the same identity. Once a start was attempted, pres
 the entire input and reconcile its receipt before changing anything.
 
 A live older server returning `observation` has started nothing; do not report it as a
-running worker. Unsupported profiles, ownership conflicts, unavailable
-coordinator/execution connections and actual provider auth/quota errors must be
-surfaced honestly. Historical warnings are not proof that a fresh provider attempt
-will fail, and low numeric usage is not a guarantee of success. Never clear historical
-errors, redeem reset credits, or start extra test turns to obtain an allowed receipt.
+running worker. Unsupported profiles, ownership conflicts, unavailable execution
+connections and actual provider auth/quota errors must be surfaced honestly. An
+unreachable coordinator does not fail a start: the requesting computer decides from its
+own readings and the coordinator's last known account rules, and records "Allocation
+coordinator unavailable" in the warnings, plus "Account rules were not checked" when it
+holds no copy of the policy. Historical warnings are not proof that a fresh provider
+attempt will fail, and low numeric usage is not a guarantee of success. Never clear
+historical errors, redeem reset credits, or start extra test turns to obtain an allowed
+receipt.
 
 ## Tiers and native continuity
 
