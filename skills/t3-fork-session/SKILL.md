@@ -277,6 +277,12 @@ fresh replacement uses the assessed path above, not a new manual account ranking
   keyword if the name would not change (`c344_camera_opus` → `c344_camera2_opus`).
   Then settle the old worker.
 
+Worker reports state the worker's context size when T3 has measured it. From
+`workerRenewal.workerContextTokens` on (default 200k, in the same settings; 0
+disables), the report tells the master to start a fresh worker for further
+unrelated work: every turn in a large context costs more. Follow it: send that
+worker only corrections and follow-ups that need its context.
+
 Worker reports state the worker's working time and the master's own: turn time
 minus tool calls over a minute, so monitoring and builds do not count. When a report
 says a worker is over its soft warning threshold, treat it as advisory: continue
@@ -388,23 +394,14 @@ blank line. Peer context remains coordination, not a new user instruction.
 Reuse the same ID and identical content on retries. T3 attaches the authenticated
 sender's session ID automatically; never invent or override the sender identity.
 
-On a server advertising `sessionMessageConfirmation`, the first call sends
-nothing and returns `confirmation_required`: sender/recipient, project, a message
-preview, and a short-lived token. Read the warning: **Are you sure this is what
-you want to do, and is it necessary?** Check the exact recipient, project and
-relevance to the user's task. Confirm an intentional, necessary message by
-calling the same tool with identical input/request ID plus `confirmationToken`.
-Do not automatically confirm warnings. A token authorizes only that message;
-changed recipients, content or ownership need a new review. On
-`workerRetirementWarning` servers, retirement alone does not block messaging.
-Its once-only informational warning needs no additional confirmation. Own-worker
-assignments and reports to the current master use their dedicated tools, without
-this step.
-Linked peer messaging needs support on both servers and a reachable recipient
-for the initial review; a reviewed message may then be confirmed and queued
-while the peer is offline. Do not bypass the warning through another transport.
+The message is sent on the first call; there is no confirmation step, so check
+the exact recipient and that the message is necessary before calling. T3 refuses
+a send to your own worker or current master, which have their dedicated tools,
+and checks the recipient again at delivery. On `workerRetirementWarning` servers,
+retirement alone does not block messaging; its once-only warning is informational.
+A message to an offline linked computer is queued and delivered when it returns.
 
-Confirmed messages appear immediately. A running recipient receives the message in its
+Messages appear immediately. A running recipient receives the message in its
 active turn; an idle recipient wakes even without a running provider process.
 Stop and snooze remain respected: the visible message waits until the recipient
 resumes. `dispatched` means handed to orchestration, not proof the agent read it;
@@ -417,13 +414,13 @@ successful spawn: default 15 elapsed wall-clock minutes, configurable live in
 Settings > Worker communication (General on web/desktop; Server controls > Agent
 behavior on mobile), on the worker's execution computer; 0 disables. Each new accepted assignment restarts it; exact
 retries and rejected sends do not. Queued startup preserves the full interval.
-During the window only `t3_worker_report` with explicit `outcome: "done"` for the
-entire completed assignment may pass. Questions, messages and `outcome: "blocked"`
+During the window only `t3_worker_report` with explicit `outcome: "done"` or
+`"review"` for the entire completed assignment may pass. Questions, messages and `outcome: "blocked"`
 (including genuine blockers and `needs: "user"` or `"master"`) cannot pass.
 Refused messages are not queued. What would you do if you were the master or user?
 Make reasonable decisions within your authority, investigate alternatives, and
 continue. Never bypass permissions. Master inspection remains available.
-After the window, report your work to a master or peer only when done or genuinely blocked,
+After the window, report your work to a master or peer only when finished or genuinely blocked,
 regardless of tool or channel. Intermediate findings, expected waits, and failures
 you are still recovering from stay in your own conversation. General permission
 to coordinate does not waive this rule. Masters may send concrete assignments,
@@ -449,11 +446,18 @@ read only after its current tool call ends, so a long wait delays every message.
 Never have workers report by messaging a master's ID: only `t3_worker_report`
 follows ownership to a successor.
 
+A report has one of three outcomes. `done`: the assignment is complete. `review`:
+it is complete and needs the master's review or merge, for example a pushed
+branch the worker may not merge; it is delivered like `done`. `blocked`: the
+worker cannot finish without a decision or action from the user or master.
+Finished work waiting for review is `review`, never `blocked`.
+
 Assign whole outcomes, not single steps. "Review, attempt and verify R1a" is one
 assignment that reports once; three separate assignments are three reports. Give
 the worker the authority it needs to proceed between stages, and reserve a stop
 for decisions only the user or master can make. `t3w reports` shows reports per
-master and worker over the last day, to spot assignments that are sliced too thin.
+master and worker over the last day (`--hours N` for longer), by outcome, to spot
+assignments that are sliced too thin.
 
 Masters must not use worker messages as a chat:
 
@@ -478,10 +482,10 @@ are durable. During the communication window, explicit blocker reports are refus
 without queuing or notifying the master. Runtime notices wait until expiry and
 are delivered only if still relevant; original errors and genuine pending
 approvals remain visible in the worker/user UI. After expiry, blockers and relevant
-runtime notices can reach a busy master. A `done` report reaches an
+runtime notices can reach a busy master. A `done` or `review` report reaches an
 idle master immediately; reports that arrive while the master is mid-turn are
 delivered together as one digest when that turn ends. Stop suppresses automatic wake-up: the report still
-appears, and reaches the agent when the master resumes. Report `done` only after
+appears, and reaches the agent when the master resumes. Report `done` or `review` only after
 the assigned work and its required background checks finish. Provider failures
 and requests for input notify automatically only after the window and if still
 relevant, labeled as runtime events rather than completed assignments.
@@ -495,7 +499,7 @@ do not duplicate a queued or running recovery.
 
 ## Master review and disposition
 
-On a completion or blocker report, check the named evidence against the assigned
+On a completion, review or blocker report, check the named evidence against the assigned
 acceptance criteria; `completed` state alone is insufficient. Read the worker's
 conversation only as far as the summary and evidence leave doubt. Then act within
 the user's existing authorization. Tell the user only what they must decide or
@@ -505,7 +509,8 @@ acknowledgment to the worker.
 - **Accepted:** if the assignment is verified, no assigned work remains, and the
   worker has no running turn, queued assignments, or unfinished background work,
   settle that worker. Keep its conversation and artifacts. Do not send a thank-you
-  or acknowledgment turn.
+  or acknowledgment turn. For a `review` report, first do the review or merge it
+  asks for.
 - **Needs correction:** send a concrete follow-up to the same worker using
   `t3_worker_send`. Identify the failed acceptance criterion, evidence, required
   change, and how to verify it. Preserve its provider/model/effort and constraints;
@@ -537,8 +542,9 @@ Settling a session does not itself close its issue or prove deployment acceptanc
 To settle, run `node <skill-directory>/scripts/settle-worker.mjs --thread-id UUID`.
 It refuses while a turn is running, dispatches T3's authenticated `thread.settle`
 command, and verifies the worker is marked settled. `t3_worker_control` does not settle threads;
-disabling reports, archiving, and deleting are not substitutes. If later work is
-assigned, reuse the retained worker and verify it becomes active again.
+disabling reports, archiving, and deleting are not substitutes. If later related
+work is assigned, reuse the retained worker and verify it becomes active again;
+unrelated work goes to a fresh worker.
 
 ## Purge old settled sessions
 
