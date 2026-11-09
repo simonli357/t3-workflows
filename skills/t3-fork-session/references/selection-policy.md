@@ -93,8 +93,10 @@ input and reconcile its receipt before changing anything.
 
 A live older server returning `observation` has started nothing. Use the reviewed
 advisory-capable deployment; do not misreport that result as a running worker.
-Unsupported profiles, ownership conflicts, unavailable coordinator/execution
-connections and actual provider auth/quota errors must be surfaced honestly.
+Unsupported profiles, ownership conflicts, unavailable execution connections and
+actual provider auth/quota errors must be surfaced honestly. An unreachable
+coordinator does not fail a start: the requesting computer decides from its own
+readings and records "Allocation coordinator unavailable" in the warnings.
 Historical warnings are not proof that a fresh provider attempt will fail, and
 low numeric usage is not a guarantee of success. Never clear historical errors,
 redeem reset credits, or start extra test turns to obtain an allowed receipt.

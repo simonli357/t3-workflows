@@ -265,8 +265,9 @@ fresh replacement uses the assessed path above, not a new manual account ranking
   (omitted values stay current; effort defaults to the profile's). Pass its JSON
   to `t3_worker_control`. A running turn finishes on the old profile and later
   turns use the new one; another provider gets a summary of the conversation, not
-  its native history. A turn that already stopped, for example on a usage limit,
-  is not retried: resume it with `t3_worker_send`. The title keeps its model suffix.
+  its native history. A turn that already stopped is not retried: resume it with
+  `t3_worker_send`. An assignment queued behind a usage limit or cap (below) starts on
+  the new account at once. The title keeps its model suffix.
 - **"renew <worker> [on <account> [model]]"** replaces it with a new session that
   starts from a context prompt, fresh unless the user adds "from base". Once the
   worker has no running turn (the user can Stop it in T3), write its full
@@ -485,7 +486,18 @@ appears, and reaches the agent when the master resumes. Report `done` only after
 the assigned work and its required background checks finish. Provider failures
 and requests for input notify automatically only after the window and if still
 relevant, labeled as runtime events rather than completed assignments.
-With `workerAutoSwitchOnUsageLimit` enabled (default), T3 automatically retries a managed worker’s usage-limited prompt once on a recommended account with quota headroom, preferring the same provider family; cross-family switches use conversation handoff and notify the master. Masters never switch automatically.
+With `workerAutoSwitchOnUsageLimit` enabled (default), a managed worker's assignment that
+hits a usage limit, model capacity or an account cap is not lost and needs no resend. T3
+retries it on another account of the same provider family that has quota headroom; otherwise
+it stays queued (`latestRequest.state: "queued"`, its `error` names the account and time) and
+starts by itself at the provider reset, or as soon as the limit or cap clears. An assignment
+sent to a worker whose account is already limited or capped is moved or queued the same way
+before it starts. The retry is a new request `usage-retry:<original id>`; the original shows
+`error`. You are notified once, and only when the worker moved to another provider family (a
+conversation handoff) or the wait exceeds three hours; switch the worker's account to resume
+sooner. A reached account cap blocks new turns on that account and lets running turns finish.
+Masters are never retried or switched automatically; a worker that supervises its own
+workers keeps its account and waits for the reset.
 Never autoapprove an input/approval request.
 
 After a server restart, inspect current state before resuming anything. Automatic
