@@ -39,14 +39,28 @@ pending migrations on a temporary `VACUUM INTO` copy, then activates and checks
 the server. Existing native sidecars are retained; changed dependency versions
 require native packaging first. `--dry-run` prints the steps without changing
 the installation. `--help` lists path overrides and the migration/health limits
-(defaults: 60 seconds, 120 seconds, 2-second stalls).
+(defaults: 60 seconds, 120 seconds, 2-second probe timeout).
+
+The health check fails only for a named cause: `unresponsive` (no successful
+probe for `--unresponsive-seconds`, default 60, or not ready within
+`--ready-seconds`), `wrong version`, `wrong migration ledger` or `exited`.
+Single slow probes and logged event-loop stalls are counted in the result.
 
 Linux activation runs outside the agents slice. On Windows, run
 `node "$HOME\t3-workflows\bin\t3w.mjs" release` in desktop PowerShell or an
-Interactive scheduled task. Failed health checks roll back only while the live
-migration ledger and schema are unchanged; otherwise the server stays stopped.
-Unfinished existing deployment claims block the command. An interrupted release
-leaves its job path in `runtime/t3w-deploy/release-in-progress.json` for inspection.
+Interactive scheduled task; the desktop gets `--close-seconds` (default 600) to
+close by itself and is never forced. A release never leaves the server down:
+an abort before the switch starts the old version again, a failed health check
+rolls back only while the live migration ledger and schema are unchanged, and
+otherwise the new version stays up and the command exits non-zero with
+"running but failed the health check". Only a server that cannot start is left
+stopped, and the message gives the start command.
+
+Unfinished existing deployment claims block the command. A release that did not
+finish leaves its job path in `runtime/t3w-deploy/release-in-progress.json`.
+Run `t3w release` again: when the installed version and ledger already match the
+commit, it checks health and clears the marker without rebuilding; any other
+leftover marker is refused for inspection.
 
 ## Weekly upstream review
 

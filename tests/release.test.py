@@ -1,7 +1,9 @@
 from contextlib import closing, contextmanager
 import json
 from pathlib import Path
+import shutil
 import sqlite3
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -299,10 +301,11 @@ class ReleaseTests(unittest.TestCase):
                 with self.assertRaises(release.urllib.error.URLError):
                     release.running_version(args, state)
 
-    def test_wrong_version_and_stall_are_unhealthy(self):
+    def test_wrong_version_fails_by_name_and_event_loop_stalls_are_only_reported(self):
         with patch.object(release, 'descriptor', return_value={'serverVersion': 'wrong'}):
-            with self.assertRaisesRegex(RuntimeError, 'version mismatch'):
+            with self.assertRaisesRegex(release.Unhealthy, 'wrong version: server reports wrong, expected wanted') as raised:
                 release.health(9000, 'wanted', 1, 2000, {})
+            self.assertEqual(raised.exception.cause, 'wrong version')
         log = self.root / 'server.log'; log.write_text('')
         with self.clock() as now, patch.object(release.urllib.request, 'urlopen') as request:
             def descriptor(*args):
@@ -310,8 +313,9 @@ class ReleaseTests(unittest.TestCase):
                     log.write_text('event loop stalled for 2014 ms\n')
                 return {'serverVersion': 'wanted'}
             request.return_value.__enter__.return_value.status = 200
-            with patch.object(release, 'descriptor', side_effect=descriptor), self.assertRaisesRegex(RuntimeError, 'stalled for 2014 ms'):
-                release.health(9000, 'wanted', 1, 2000, {log: 0})
+            with patch.object(release, 'descriptor', side_effect=descriptor):
+                result = release.health(9000, 'wanted', 1, 2000, {log: 0})
+            self.assertEqual((result['eventLoopStalls'], result['maxEventLoopStallMs']), (1, 2014))
             self.assertEqual(now[0], 31)
 
     def test_readiness_outlasts_slow_startup_and_reports_last_probe(self):
@@ -348,54 +352,261 @@ class ReleaseTests(unittest.TestCase):
                 release.health(9000, 'wanted', 120, 2000, {}, ready_seconds=40)
             self.assertEqual(now[0], 40)
 
-    def test_steady_state_http_timeouts_fail_without_another_settling_window(self):
+    def test_one_timed_out_probe_is_tolerated_and_only_sustained_silence_fails(self):
         for failing_endpoint in ['descriptor', 'web']:
-            with self.subTest(endpoint=failing_endpoint), self.clock() as now, patch.object(release.urllib.request, 'urlopen') as request:
-                def descriptor(*args):
-                    if failing_endpoint == 'descriptor' and now[0] >= 31:
-                        raise TimeoutError('HTTP response headers timed out')
-                    return {'serverVersion': 'wanted'}
-                def web(*args, **kwargs):
-                    if failing_endpoint == 'web' and now[0] >= 31:
-                        raise TimeoutError('HTTP response headers timed out')
-                    return response
-                response = request.return_value
-                response.__enter__.return_value.status = 200
-                request.side_effect = web
-                with patch.object(release, 'descriptor', side_effect=descriptor), self.assertRaisesRegex(TimeoutError, 'headers timed out'):
-                    release.health(9000, 'wanted', 120, 2000, {})
-                self.assertEqual(now[0], 31)
+            for silent_until in [41, float('inf')]:
+                with self.subTest(endpoint=failing_endpoint, until=silent_until), self.clock() as now, patch.object(
+                        release.urllib.request, 'urlopen') as request:
+                    def silent():
+                        return 40 <= now[0] < silent_until
+                    def descriptor(*args):
+                        if failing_endpoint == 'descriptor' and silent():
+                            raise TimeoutError('timed out')
+                        return {'serverVersion': 'wanted'}
+                    def web(*args, **kwargs):
+                        if failing_endpoint == 'web' and silent():
+                            raise TimeoutError('timed out')
+                        return response
+                    response = request.return_value
+                    response.__enter__.return_value.status = 200
+                    request.side_effect = web
+                    with patch.object(release, 'descriptor', side_effect=descriptor):
+                        if silent_until == 41:
+                            result = release.health(9000, 'wanted', 120, 2000, {}, unresponsive_seconds=60)
+                            self.assertEqual((result['failedProbes'], result['seconds'], now[0]), (1, 120, 150))
+                            continue
+                        with self.assertRaisesRegex(release.Unhealthy, 'unresponsive: no successful probe for 60 seconds; '
+                                                    'last probe: TimeoutError: timed out') as raised:
+                            release.health(9000, 'wanted', 120, 2000, {}, unresponsive_seconds=60)
+                    self.assertEqual(raised.exception.cause, 'unresponsive')
+                    # Last answer at 39 s; the stated 60 s window ends the check, not the first miss at 40 s.
+                    self.assertEqual(now[0], 99)
 
-    def test_failed_start_rolls_back_only_without_live_migration(self):
-        for migrates in [False, True]:
-            with self.subTest(migrates=migrates), tempfile.TemporaryDirectory() as folder:
-                home = Path(folder) / 'home'
-                job = Path(folder) / 'job'; job.mkdir()
-                (home / 'userdata').mkdir(parents=True)
-                import shutil
-                shutil.copy2(self.db, home / 'userdata/state.sqlite')
+    def activation(self, folder, wanted, extra=()):
+        home = Path(folder) / 'home'
+        job = Path(folder) / 'job'; job.mkdir()
+        (home / 'userdata').mkdir(parents=True)
+        shutil.copy2(self.db, home / 'userdata/state.sqlite')
+        (home / 'runtime/versions/old').mkdir(parents=True)
+        payload = job / 'payload'; payload.mkdir(); (payload / 't3').write_text('fixture')
+        args = release.parser().parse_args(['--home', str(home), '--port', '49000', *extra])
+        return home, job, args, {'version': 'new', 'runtime': str(payload), 'migrations': wanted, 'source': str(job / 'source')}
+
+    def migrate(self, home):
+        with closing(sqlite3.connect(home / 'userdata/state.sqlite')) as db, db:
+            db.executescript("CREATE TABLE forward_only(value TEXT); INSERT INTO effect_sql_migrations VALUES(2,'Second');")
+
+    def server(self, home, job, on_start=lambda name: None, on_stop=lambda name: None, launchable=True):
+        """A stand-in for the isolated server: `up` is the version answering HTTP, or None."""
+        test = self
+        class Server:
+            hint, up, events = 'START-COMMAND', None, []
+            def __init__(self, *args): self.log = job / 'server.log'
+            def stop(self):
+                Server.events.append('stop')
+                on_stop(Server.up)
+                Server.up = None
+            def start(self, runtime):
+                Server.events.append('start ' + runtime.name)
+                Server.up = runtime.name
+                on_start(runtime.name)
+            def launch(self):
+                Server.events.append('launch')
+                if not launchable:
+                    raise RuntimeError('exec failed')
+                Server.up = release.read(home / 'runtime/service-state.json')['activeVersion']
+            def alive(self): return Server.up is not None
+            running = alive
+        def descriptor(port, timeout=5):
+            if Server.up is None:
+                raise ConnectionRefusedError('refused')
+            return {'serverVersion': Server.up}
+        return Server, patch.object(release, 'descriptor', side_effect=descriptor)
+
+    def test_failed_health_after_migration_leaves_new_version_running(self):
+        failure = release.Unhealthy('unresponsive', 'no successful probe for 60 seconds')
+        # [what the fake does, events after the new version started, final message]
+        cases = {
+            'still running': ['stop'],
+            'stopped by the script': ['stop', 'launch', 'stop'],
+            'died': ['launch', 'stop'],
+            'cannot start': ['launch', 'stop'],
+        }
+        for case, after in cases.items():
+            with self.subTest(case=case), tempfile.TemporaryDirectory() as folder, self.clock():
+                home, job, args, built = self.activation(folder, [[1, 'First'], [2, 'Second']], ['--isolated'])
                 state = home / 'runtime/service-state.json'
                 release.save(state, {'protocol': 3, 'activeVersion': 'old'})
-                (home / 'runtime/versions/old').mkdir(parents=True)
-                payload = job / 'payload'; payload.mkdir(); (payload / 't3').write_text('fixture')
-                args = release.parser().parse_args(['--isolated', '--home', str(home), '--port', '49000'])
-                built = {'version': 'new', 'runtime': str(payload), 'migrations': [[1, 'First'], [2, 'Second']] if migrates else [[1, 'First']]}
-                starts = []
-                class Server:
-                    def __init__(self, *args): self.log = job / 'server.log'
-                    def stop(self): pass
-                    def alive(self): return True
-                    def start(self, runtime):
-                        starts.append(runtime.name)
-                        if migrates and runtime.name == 'new':
-                            with closing(sqlite3.connect(home / 'userdata/state.sqlite')) as db, db:
-                                db.executescript("CREATE TABLE forward_only(value TEXT); INSERT INTO effect_sql_migrations VALUES(2,'Second');")
-                with patch.object(release, 'Isolated', Server), patch.object(release, 'health', side_effect=[{}, RuntimeError('unhealthy'), {}]):
-                    with self.assertRaisesRegex(RuntimeError, 'schema only moves forward' if migrates else 'rolled back to old'):
+                # The migration commits at startup, or only while the script is stopping the server.
+                late = case == 'stopped by the script'
+                Server, answers = self.server(
+                    home, job, launchable=case != 'cannot start',
+                    on_start=lambda name: name == 'new' and not late and self.migrate(home),
+                    on_stop=lambda name: name == 'new' and late and release.ledger(home / 'userdata/state.sqlite') == [[1, 'First']] and self.migrate(home))
+                def health(port, version, *rest, **options):
+                    if version != 'new':
+                        return {}
+                    if case in ('died', 'cannot start'):
+                        Server.up = None
+                    raise failure
+                with patch.object(release, 'Isolated', Server), answers, patch.object(release, 'health', side_effect=health):
+                    with self.assertRaises(RuntimeError) as raised:
                         release.activate(args, built, job, {'before': [[1, 'First']]})
-                self.assertEqual(starts, ['old', 'new'] if migrates else ['old', 'new', 'old'])
-                self.assertEqual(release.read(state)['activeVersion'], 'new' if migrates else 'old')
-                self.assertEqual((home / 'runtime/t3w-deploy/release-in-progress.json').exists(), migrates)
+                message = str(raised.exception)
+                if case == 'cannot start':
+                    self.assertRegex(message, 'new is installed, but the server is NOT running and could not be started. '
+                                              'Start it with: START-COMMAND. unresponsive: no successful probe')
+                else:
+                    self.assertEqual(message, 'new is running but failed the health check: unresponsive: no successful probe for 60 seconds')
+                # The last stop is the isolated teardown; a real host has none.
+                self.assertEqual(Server.events, ['start old', 'stop', 'start new', *after])
+                self.assertEqual(release.read(state)['activeVersion'], 'new')
+                self.assertTrue((home / 'runtime/t3w-deploy/release-in-progress.json').exists())
+
+    def test_failed_health_without_migration_rolls_back_and_abort_before_switch_restarts_old(self):
+        for case in ['rollback', 'stop failed', 'ledger moved']:
+            with self.subTest(case=case), tempfile.TemporaryDirectory() as folder, self.clock():
+                home, job, args, built = self.activation(folder, [[1, 'First']], ['--isolated'])
+                state = home / 'runtime/service-state.json'
+                release.save(state, {'protocol': 3, 'activeVersion': 'old'})
+                def on_stop(name, failures=[case == 'stop failed']):
+                    if failures.pop():
+                        failures.append(False)
+                        raise RuntimeError('Port is still occupied; no processes killed')
+                    failures.append(False)
+                Server, answers = self.server(home, job, on_stop=on_stop)
+                rehearsal = {'before': [[0, 'Other']] if case == 'ledger moved' else [[1, 'First']]}
+                with patch.object(release, 'Isolated', Server), answers, patch.object(
+                        release, 'health', side_effect=[{}, RuntimeError('unhealthy'), {}]):
+                    with self.assertRaises(RuntimeError) as raised:
+                        release.activate(args, built, job, rehearsal)
+                message = str(raised.exception)
+                if case == 'rollback':
+                    self.assertEqual(message, 'Health check failed; rolled back to old: unhealthy')
+                    self.assertEqual(Server.events, ['start old', 'stop', 'start new', 'stop', 'start old', 'stop'])
+                else:
+                    self.assertRegex(message, 'Release aborted before the switch; old is running: ')
+                    # A stopped old server is started again; one that never stopped is left alone.
+                    self.assertEqual(Server.events[:3], ['start old', 'stop', 'stop' if case == 'stop failed' else 'launch'])
+                    self.assertFalse((home / 'runtime/versions/new').exists())
+                self.assertEqual(release.read(state)['activeVersion'], 'old')
+                self.assertFalse((home / 'runtime/t3w-deploy/release-in-progress.json').exists())
+
+    def windows_desktop(self, folder, wanted):
+        """The real Windows controller with PowerShell and the desktop process replaced by `desktop`."""
+        home, job, args, built = self.activation(folder, wanted, ['--desktop', str(Path(folder) / 'app/T3.exe'), '--close-seconds', '5'])
+        resources = Path(folder) / 'app/resources'; resources.mkdir(parents=True)
+        for name in ['server.asar', 'app.asar']:
+            (resources / name).write_text('old')
+        # state: open, closing (asked to close, still answering) or closed; `late` looks later, a closing one is closed.
+        desktop = {'state': 'open', 'stop': 'closes', 'late': None, 'launched': []}
+        def ps(controller, action, check=True):
+            if action == 'running':
+                if desktop['late'] == 0:
+                    desktop.update(state='closed', late=None)
+                elif desktop['late']:
+                    desktop['late'] -= 1
+                return 3 if desktop['state'] == 'closed' else 0
+            if action == 'stop':
+                self.assertEqual(controller.close_seconds, 5)
+                if desktop['state'] != 'closed' and desktop['stop'] != 'closes':
+                    desktop['state'] = 'closing'
+                    raise subprocess.CalledProcessError(1, 'windows.ps1 -Action stop')
+                desktop['state'] = 'closed'
+        def popen(*args, **kwargs):
+            # A second instance exits at once while the first still holds the single-instance lock.
+            if desktop['state'] == 'closed':
+                desktop['state'] = 'open'
+                desktop['launched'].append((resources / 'server.asar').read_text() + '/' + (resources / 'app.asar').read_text())
+        def descriptor(port, timeout=5):
+            if desktop['state'] == 'closed':
+                raise ConnectionRefusedError('refused')
+            return {'serverVersion': (resources / 'server.asar').read_text()}
+        patches = [patch.object(release, 'WINDOWS', True), patch.object(release.Windows, 'ps', autospec=True, side_effect=ps),
+                   patch.object(release.subprocess, 'Popen', side_effect=popen), patch.object(release, 'descriptor', side_effect=descriptor),
+                   patch.object(release, 'repack', side_effect=lambda old, target, version, dist=None: Path(target).write_text(version))]
+        return home, job, args, built, desktop, patches
+
+    def test_windows_desktop_is_never_left_closed(self):
+        from contextlib import ExitStack
+        marker = 'runtime/t3w-deploy/release-in-progress.json'
+        # Closed late, during the wait that follows the failed stop: that is closed, and the release goes on.
+        with tempfile.TemporaryDirectory() as folder, ExitStack() as stack, self.clock():
+            home, job, args, built, desktop, patches = self.windows_desktop(folder, [[1, 'First']])
+            [stack.enter_context(p) for p in patches]
+            desktop.update(stop='hangs', late=0)
+            with patch.object(release, 'health', return_value={}):
+                self.assertEqual(release.activate(args, built, job, {'before': [[1, 'First']]})['status'], 'healthy')
+            self.assertEqual(desktop['launched'], ['new/new'])
+            self.assertFalse((home / marker).exists())
+        # Still closing when the wait ends: abort before the swap, then start the old app once it has closed.
+        with tempfile.TemporaryDirectory() as folder, ExitStack() as stack, self.clock():
+            home, job, args, built, desktop, patches = self.windows_desktop(folder, [[1, 'First']])
+            [stack.enter_context(p) for p in patches]
+            desktop.update(stop='hangs', late=3)
+            with patch.object(release, 'health', side_effect=AssertionError('nothing new was started')):
+                with self.assertRaisesRegex(RuntimeError, 'Release aborted before the switch; old is running: '):
+                    release.activate(args, built, job, {'before': [[1, 'First']]})
+            self.assertEqual((desktop['state'], desktop['launched']), ('open', ['old/old']))
+            self.assertFalse((home / marker).exists())
+            self.assertFalse((home / 'runtime/versions/new').exists())
+        # Never closes: nothing is swapped or forced, and the old app that still answers is reported as running.
+        with tempfile.TemporaryDirectory() as folder, ExitStack() as stack, self.clock() as now:
+            home, job, args, built, desktop, patches = self.windows_desktop(folder, [[1, 'First']])
+            [stack.enter_context(p) for p in patches]
+            desktop.update(stop='hangs')
+            with self.assertRaisesRegex(RuntimeError, 'Release aborted before the switch; old is running: '):
+                release.activate(args, built, job, {'before': [[1, 'First']]})
+            self.assertEqual((desktop['state'], desktop['launched'], now[0]), ('closing', [], 120))
+            self.assertEqual((Path(folder) / 'app/resources/server.asar').read_text(), 'old')
+        # After the swap with the schema moved: the new app is started again when it is found closed.
+        with tempfile.TemporaryDirectory() as folder, ExitStack() as stack, self.clock():
+            home, job, args, built, desktop, patches = self.windows_desktop(folder, [[1, 'First'], [2, 'Second']])
+            [stack.enter_context(p) for p in patches]
+            def health(*rest, **options):
+                self.migrate(home)
+                desktop['state'] = 'closed'
+                raise release.Unhealthy('exited', 'the server process is not running')
+            with patch.object(release, 'health', side_effect=health):
+                with self.assertRaisesRegex(RuntimeError, 'new is running but failed the health check: exited: '):
+                    release.activate(args, built, job, {'before': [[1, 'First']]})
+            self.assertEqual((desktop['state'], desktop['launched']), ('open', ['new/new', 'new/new']))
+            self.assertTrue((home / marker).exists())
+        # After the swap with the schema unchanged: the old ASARs are put back and started.
+        with tempfile.TemporaryDirectory() as folder, ExitStack() as stack, self.clock():
+            home, job, args, built, desktop, patches = self.windows_desktop(folder, [[1, 'First']])
+            [stack.enter_context(p) for p in patches]
+            with patch.object(release, 'health', side_effect=[RuntimeError('unhealthy'), {}]):
+                with self.assertRaisesRegex(RuntimeError, 'rolled back to old: unhealthy'):
+                    release.activate(args, built, job, {'before': [[1, 'First']]})
+            self.assertEqual((desktop['state'], desktop['launched']), ('open', ['new/new', 'old/old']))
+
+    def test_leftover_marker_of_an_installed_release_is_cleared_by_a_health_check_without_rebuilding(self):
+        root = self.root / 'jobroot'; root.mkdir()
+        home, job, args, built = self.activation(root, [[1, 'First']])
+        state = home / 'runtime/service-state.json'
+        release.save(state, {'protocol': 3, 'activeVersion': 'new'})
+        release.save(home / 'runtime/versions/new/package.json', {'version': 'new', 'sourceCommit': 'abc', 'migrations': [[1, 'First']]})
+        marker = home / 'runtime/t3w-deploy/release-in-progress.json'
+        argv = ['--isolated', '--home', str(home), '--job', str(root), '--port', '49000']
+        for commit, healthy in [('other', True), ('abc', False), ('abc', True)]:
+            with self.subTest(commit=commit, healthy=healthy):
+                release.save(marker, {'job': 'gone', 'version': 'new', 'previousVersion': 'old'})
+                Server, answers = self.server(home, job)
+                outcome = {} if healthy else release.Unhealthy('unresponsive', 'no successful probe for 60 seconds')
+                with patch.object(release, 'Isolated', Server), answers, patch.object(release, 'pinned_commit', return_value=commit), \
+                        patch.object(release, 'build', side_effect=AssertionError('rebuilt')), \
+                        patch.object(release, 'health', side_effect=[outcome]) as health:
+                    if commit == 'abc' and healthy:
+                        release.main(argv)
+                        self.assertFalse(marker.exists())
+                        self.assertEqual(Server.events, ['launch', 'stop'])
+                        self.assertEqual(health.call_args.args[1], 'new')
+                        continue
+                    with self.assertRaisesRegex(RuntimeError, 'needs inspection' if commit == 'other' else
+                                                'new is running but failed the health check: unresponsive'):
+                        release.main(argv)
+                    self.assertTrue(marker.exists())
 
     def test_asar_repack_preserves_native_entries_and_other_bytes(self):
         import struct

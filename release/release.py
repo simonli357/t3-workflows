@@ -7,6 +7,7 @@ the V2 copy and rolls back by restarting the retained custom runtime, never by r
 import argparse
 from contextlib import contextmanager
 import hashlib
+import http.client
 import json
 import os
 import platform
@@ -30,6 +31,14 @@ STARTUP_SETTLE_SECONDS = 30
 V2_LINE = 'origin/v2/main'
 ORCHESTRATION_PROTOCOL = 2
 GIB = 1024 ** 3
+PROBE_ERRORS = (OSError, ValueError, http.client.HTTPException)
+
+
+class Unhealthy(RuntimeError):
+    """A failed health check names its cause: unresponsive, wrong version, wrong migration ledger or exited."""
+    def __init__(self, cause, detail):
+        super().__init__(f'{cause}: {detail}')
+        self.cause = cause
 
 
 def run(args, *, cwd=None, env=None, timeout=300, capture=False):
@@ -237,7 +246,7 @@ def vacuum(source, target):
         db.execute('VACUUM INTO ?', (str(target),))
 
 
-def check_claim(home):
+def check_claim(home, marker=True):
     root = home / 'runtime/t3w-deploy'
     if (root / 'claim.json').exists():
         claim = read(root / 'claim.json')
@@ -254,12 +263,12 @@ def check_claim(home):
                         and cancellation.get('originalReceiptSha256') == hashlib.sha256((root / claim['id'] / 'receipt.json').read_bytes()).hexdigest())
         if not terminal or receipt.get('id') != claim['id'] or receipt.get('manifestHash') != claim['manifestHash']:
             raise RuntimeError('Another release owns an unfinished deployment: ' + claim['id'])
-    if (root / 'release-in-progress.json').exists():
+    if marker and (root / 'release-in-progress.json').exists():
         raise RuntimeError('An interrupted release needs inspection: ' + str(root / 'release-in-progress.json'))
 
 
 @contextmanager
-def host_lock(home):
+def host_lock(home, marker=True):
     root = home / 'runtime/t3w-deploy'
     root.mkdir(parents=True, exist_ok=True)
     with (root / 'host.lock').open('a+b') as lock:
@@ -275,7 +284,7 @@ def host_lock(home):
                 fcntl.flock(lock.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
         except OSError as error:
             raise RuntimeError('Another release holds the host lock') from error
-        check_claim(home)
+        check_claim(home, marker)
         yield
 
 
@@ -325,6 +334,20 @@ def required_node(source, override=None):
     return match.group(1)
 
 
+def pinned_commit(args, repo):
+    remote = run(['git', '-C', repo, 'remote', 'get-url', 'origin'], capture=True)
+    if not re.search(r'[:/]simonli357/t3code(?:\.git)?$', remote):
+        raise RuntimeError('Source origin must be simonli357/t3code')
+    branch = V2_LINE if args.line == 'v2' else 'origin/main'
+    run(['git', '-C', repo, 'fetch', 'origin', branch.split('/', 1)[1]])
+    commit = run(['git', '-C', repo, 'rev-parse', '--verify', args.ref + '^{commit}'], capture=True)
+    try:
+        run(['git', '-C', repo, 'merge-base', '--is-ancestor', commit, branch])
+    except subprocess.CalledProcessError as error:
+        raise RuntimeError(f'{args.ref} is not on {branch}; refusing to release an unpushed commit') from error
+    return commit
+
+
 def build(args, job):
     env = clean_env()
     env.update({'TMPDIR': str(job / 'tmp'), 'TMP': str(job / 'tmp'), 'TEMP': str(job / 'tmp'),
@@ -337,16 +360,7 @@ def build(args, job):
     if not repo.exists():
         repo = job / 'repository'
         run(['git', 'clone', '--no-checkout', 'https://github.com/simonli357/t3code.git', repo], timeout=600)
-    remote = run(['git', '-C', repo, 'remote', 'get-url', 'origin'], capture=True)
-    if not re.search(r'[:/]simonli357/t3code(?:\.git)?$', remote):
-        raise RuntimeError('Source origin must be simonli357/t3code')
-    branch = V2_LINE if args.line == 'v2' else 'origin/main'
-    run(['git', '-C', repo, 'fetch', 'origin', branch.split('/', 1)[1]])
-    commit = run(['git', '-C', repo, 'rev-parse', '--verify', args.ref + '^{commit}'], capture=True)
-    try:
-        run(['git', '-C', repo, 'merge-base', '--is-ancestor', commit, branch])
-    except subprocess.CalledProcessError as error:
-        raise RuntimeError(f'{args.ref} is not on {branch}; refusing to release an unpushed commit') from error
+    commit = pinned_commit(args, repo)
     source = job / 'source'
     run(['git', '-C', repo, 'worktree', 'add', '--detach', source, commit])
     # The single-executable step fails closed on the exact Node release the source pins.
@@ -463,19 +477,21 @@ def running_version(args, previous_state):
         return previous_state['activeVersion']
 
 
-def health(port, version, seconds, stall_ms, logs, alive=lambda: True, ready_seconds=900, protocol=None):
+def health(port, version, seconds, stall_ms, logs, alive=lambda: True, ready_seconds=900, protocol=None,
+           unresponsive_seconds=60):
+    """Fail only for a named cause; one slow or timed-out probe is counted, not fatal."""
     def probe():
         started = time.monotonic()
         if not alive():
-            raise RuntimeError('New server exited')
+            raise Unhealthy('exited', 'the server process is not running')
         observed = descriptor(port, stall_ms / 1000)
         if observed.get('serverVersion') != version:
-            raise RuntimeError('Server version mismatch: ' + str(observed.get('serverVersion')))
+            raise Unhealthy('wrong version', f"server reports {observed.get('serverVersion')}, expected {version}")
         if protocol is not None and (observed.get('orchestrationProtocolVersion') or 1) != protocol:
-            raise RuntimeError('Server protocol mismatch: ' + str(observed.get('orchestrationProtocolVersion')))
+            raise Unhealthy('wrong version', f"server speaks protocol {observed.get('orchestrationProtocolVersion')}, expected {protocol}")
         with urllib.request.urlopen(f'http://127.0.0.1:{port}/', timeout=stall_ms / 1000) as response:
             if response.status != 200:
-                raise RuntimeError('Web client did not answer')
+                raise OSError('Web client did not answer')
             response.read(1024)
         elapsed = (time.monotonic() - started) * 1000
         if elapsed >= stall_ms:
@@ -483,7 +499,7 @@ def health(port, version, seconds, stall_ms, logs, alive=lambda: True, ready_sec
         return elapsed
 
     # Command readiness releases the first background sweeps too. Require stable HTTP
-    # for one event-loop sampling interval before measuring strict steady-state health.
+    # for one event-loop sampling interval before measuring steady-state health.
     started = time.monotonic()
     reported = started
     stable_since = None
@@ -491,7 +507,7 @@ def health(port, version, seconds, stall_ms, logs, alive=lambda: True, ready_sec
     while True:
         try:
             probe()
-        except (OSError, ValueError) as error:
+        except PROBE_ERRORS as error:
             stable_since = None
             last = f'{type(error).__name__}: {error}'
         else:
@@ -503,20 +519,35 @@ def health(port, version, seconds, stall_ms, logs, alive=lambda: True, ready_sec
             last = f'HTTP responsive for {now - stable_since:g}s; settling startup'
         now = time.monotonic()
         if now - started >= ready_seconds:
-            raise RuntimeError(f'Server did not become ready within {ready_seconds:g} seconds; last probe: {last}')
+            raise Unhealthy('unresponsive', f'server did not become ready within {ready_seconds:g} seconds; last probe: {last}')
         if now - reported >= 30:
             reported = now
             print(f'Waiting for server readiness: {round(now - started)}s; last probe: {last}', flush=True)
         time.sleep(min(1, max(0, ready_seconds - (now - started))))
     ready = round(time.monotonic() - started, 1)
+    print(f'Server ready after {ready:g}s; checking health for {seconds:g}s', flush=True)
     for directory in {file.parent for file in logs}:
         for file in directory.glob('*.log'):
             logs[file] = file.stat().st_size
     deadline = time.monotonic() + seconds
     maximum = 0
+    failed = 0
+    stalls = []
+    answered = time.monotonic()
     while True:
-        elapsed = probe()
-        maximum = max(maximum, elapsed)
+        try:
+            maximum = max(maximum, probe())
+            answered = time.monotonic()
+        except PROBE_ERRORS as error:
+            # A busy machine misses single probes; only sustained silence is a failure.
+            failed += 1
+            silent = time.monotonic() - answered
+            last = f'{type(error).__name__}: {error}'
+            print(f'Health probe failed ({last}); no answer for {silent:.0f}s of {unresponsive_seconds:g}s allowed', flush=True)
+            if silent >= unresponsive_seconds:
+                raise Unhealthy('unresponsive', f'no successful probe for {unresponsive_seconds:g} seconds; last probe: {last}') from error
+            time.sleep(1)
+            continue
         for directory in {file.parent for file in logs}:
             for file in directory.glob('*.log'):
                 logs.setdefault(file, 0)
@@ -524,17 +555,25 @@ def health(port, version, seconds, stall_ms, logs, alive=lambda: True, ready_sec
             if not file.exists():
                 continue
             with file.open('rb') as stream:
-                stream.seek(offset if file.stat().st_size >= offset else 0)
-                text = stream.read().decode(errors='replace')
-            for delay in re.findall(r'event loop stalled for ([\d.]+) ms', text):
+                offset = offset if file.stat().st_size >= offset else 0
+                stream.seek(offset)
+                data = stream.read()
+            # Reported, not fatal: a stall long enough to matter also fails the probes above.
+            data = data[:data.rfind(b'\n') + 1]
+            logs[file] = offset + len(data)
+            for delay in re.findall(r'event loop stalled for ([\d.]+) ms', data.decode(errors='replace')):
                 if float(delay) >= stall_ms:
-                    raise RuntimeError('Event loop stalled for ' + delay + ' ms')
+                    stalls.append(float(delay))
+                    print('Event loop stalled for ' + delay + ' ms', flush=True)
         if time.monotonic() >= deadline:
-            return {'readySeconds': ready, 'seconds': seconds, 'maxProbeMs': round(maximum, 1), 'version': version}
+            return {'readySeconds': ready, 'seconds': seconds, 'maxProbeMs': round(maximum, 1), 'failedProbes': failed,
+                    'eventLoopStalls': len(stalls), 'maxEventLoopStallMs': max(stalls, default=0), 'version': version}
         time.sleep(min(1, max(0, deadline - time.monotonic())))
 
 
 class Isolated:
+    hint = 'rerun the isolated rehearsal'
+
     def __init__(self, home, job, port):
         self.home, self.job, self.port, self.process = home, job, port, None
         self.log = job / 'server.log'
@@ -554,11 +593,18 @@ class Isolated:
                 '--host', '127.0.0.1', '--port', str(self.port), '--no-browser'],
                 cwd=self.home, env=clean_env(), stdout=out, stderr=subprocess.STDOUT)
 
+    def launch(self):
+        self.start(self.home / 'runtime/versions' / read(self.home / 'runtime/service-state.json')['activeVersion'])
+
     def alive(self):
         return self.process is not None and self.process.poll() is None
 
+    running = alive
+
 
 class Linux:
+    hint = 'systemctl --user start t3code.service'
+
     def __init__(self, home, job, port):
         self.home, self.port, self.job = home, port, job
         self.link = Path.home() / '.local/bin/t3'
@@ -599,31 +645,44 @@ class Linux:
         temporary = self.link.with_name('t3.release-' + uuid.uuid4().hex)
         temporary.symlink_to(runtime / 't3')
         temporary.replace(self.link)
+        self.launch()
+
+    def launch(self):
+        # Starts whatever the unit and service-state.json currently select.
         run(['systemctl', '--user', 'start', 't3code.service'])
 
     def alive(self):
         return subprocess.run(['systemctl', '--user', 'is-active', '--quiet', 't3code.service']).returncode == 0
 
+    running = alive
+
 
 class Windows:
-    def __init__(self, home, job, port, executable):
+    def __init__(self, home, job, port, executable, close_seconds=600):
         self.home, self.job, self.port, self.executable = home, job, port, Path(executable)
         self.resources = self.executable.parent / 'resources'
         self.log = home / 'userdata/logs/server.log'
         self.previous = job / 'previous-desktop'
-        self.previous.mkdir()
+        self.close_seconds = close_seconds
         self.child = None
+        self.closing = False
+        self.hint = f'Start-Process "{self.executable}" in the signed-in desktop session'
 
-    def ps(self, action):
-        run(['powershell.exe', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', HERE / 'windows.ps1',
-             '-Action', action, '-Executable', self.executable, '-Port', self.port,
-             '-MainPid', self.child.pid if self.child else 0], timeout=150)
+    def ps(self, action, check=True):
+        command = ['powershell.exe', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', HERE / 'windows.ps1',
+                   '-Action', action, '-Executable', self.executable, '-Port', self.port,
+                   '-MainPid', self.child.pid if self.child else 0, '-CloseSeconds', int(self.close_seconds)]
+        timeout = self.close_seconds + 60 if action == 'stop' else 150
+        if check:
+            return run(command, timeout=timeout)
+        return subprocess.run([str(a) for a in command], timeout=timeout).returncode
 
     def inspect(self):
         self.ps('interactive'); self.ps('inspect')
 
     def prepare(self, built):
         prepared = self.job / 'desktop'; prepared.mkdir()
+        self.previous.mkdir()
         for name in ['server.asar', 'app.asar']:
             shutil.copy2(self.resources / name, self.previous / name)
             repack(self.resources / name, prepared / name, built['version'],
@@ -631,7 +690,13 @@ class Windows:
         return prepared
 
     def stop(self):
-        self.ps('stop')
+        try:
+            self.ps('stop')
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
+            # Closed late is closed. Anything still running is reported, never forced.
+            if self.running():
+                self.closing = True
+                raise
         self.child = None
 
     def start(self, runtime):
@@ -640,10 +705,74 @@ class Windows:
             temporary = self.resources / (name + '.t3w-release-next')
             shutil.copy2(runtime / name, temporary)
             os.replace(temporary, self.resources / name)
+        self.launch()
+
+    def launch(self):
+        # Starts whichever ASARs are installed.
+        self.closing = False
         self.child = subprocess.Popen([str(self.executable)], cwd=self.executable.parent, env=clean_env())
 
     def alive(self):
         return self.child is None or self.child.poll() is None
+
+    def running(self):
+        code = self.ps('running', check=False)
+        if code not in (0, 3):
+            raise RuntimeError('Could not tell whether the desktop is running')
+        return code == 0
+
+
+def controller_for(args, home, job):
+    if args.isolated:
+        return Isolated(home, job, args.port)
+    if WINDOWS:
+        return Windows(home, job, args.port, args.desktop, args.close_seconds)
+    return Linux(home, job, args.port)
+
+
+def installed_version(args, home):
+    if WINDOWS and not args.isolated:
+        return json.loads(read_file(Path(args.desktop).parent / 'resources/server.asar', 'package.json'))['version']
+    return read(home / 'runtime/service-state.json')['activeVersion']
+
+
+def schema_moved(db, before):
+    # Unknown state is forward-only too. Never restore a database snapshot.
+    try:
+        return fingerprint(db) != before
+    except sqlite3.Error:
+        return True
+
+
+def ensure_running(controller, port, seconds):
+    """Never leave the server down: launch the installed version once if nothing runs.
+
+    Returns the answering version, '' for a live process that has not answered yet, or None."""
+    deadline = time.monotonic() + seconds
+    launched = False
+    while True:
+        # A desktop that was asked to close can still answer for a moment: watch it until the deadline.
+        closing = getattr(controller, 'closing', False) and time.monotonic() < deadline
+        try:
+            if not closing:
+                return str(descriptor(port).get('serverVersion'))
+        except PROBE_ERRORS:
+            pass
+        running = False
+        try:
+            running = controller.running()
+            if not running and not launched:
+                launched = True
+                print('No server is running; starting the installed version', flush=True)
+                controller.launch()
+                continue
+        except Exception as error:
+            print(f'Could not start the server: {type(error).__name__}: {error}', flush=True)
+        if time.monotonic() >= deadline:
+            if closing:
+                continue
+            return '' if running else None
+        time.sleep(1)
 
 
 def activate(args, built, job, rehearsal):
@@ -657,10 +786,10 @@ def activate(args, built, job, rehearsal):
     if previous_state is not None and previous_state['activeVersion'] != previous_version:
         raise RuntimeError('Running version differs from launcher selection; finish the existing release first')
     previous = home / 'runtime/versions' / previous_version
-    controller = Isolated(home, job, args.port) if args.isolated else Windows(home, job, args.port, args.desktop) if WINDOWS else Linux(home, job, args.port)
+    controller = controller_for(args, home, job)
     if not args.isolated:
         controller.inspect()
-    target = home / 'runtime/versions' / built['version']
+    staged = target = home / 'runtime/versions' / built['version']
     if target.exists():
         raise RuntimeError('Version already installed; refusing to overwrite: ' + str(target))
     shutil.copytree(built['runtime'], target)
@@ -686,30 +815,81 @@ def activate(args, built, job, rehearsal):
         if not WINDOWS or args.isolated:
             save(state, {'protocol': 3, 'activeVersion': built['version']})
         controller.start(target)
-        result = health(args.port, built['version'], args.health_seconds, args.stall_ms, logs, controller.alive, args.ready_seconds)
+        result = health(args.port, built['version'], args.health_seconds, args.stall_ms, logs, controller.alive,
+                        args.ready_seconds, unresponsive_seconds=args.unresponsive_seconds)
         if ledger(db) != built['migrations']:
-            raise RuntimeError('Live migration ledger differs after startup')
+            raise Unhealthy('wrong migration ledger', 'the live ledger differs from the release after startup')
         marker.unlink()
         return {'status': 'healthy', 'health': result, 'migration': rehearsal}
     except Exception as error:
+        # Whatever happens next, a server is left running. The marker stays unless the old version is confirmed.
+        running, down = f"{built['version']} is running but failed the health check", f"{built['version']} is installed"
+        cause, settled = str(error), False
         try:
-            controller.stop()
-            # Unknown state is forward-only too. Never restore a database snapshot.
-            unchanged = before is not None and fingerprint(db) == before
-            if not unchanged:
-                raise RuntimeError('Live migrations/schema changed or cannot be verified. Server is stopped; schema only moves forward. Repair the new version. ' + str(error)) from error
-            if previous_state is not None:
-                save(state, previous_state)
-            controller.start(previous)
-            health(args.port, previous_version, min(args.health_seconds, 10), args.stall_ms, {}, controller.alive, args.ready_seconds)
-            marker.unlink()
-            raise RuntimeError('Health check failed; rolled back to ' + previous_version + ': ' + str(error)) from error
-        finally:
-            if args.isolated:
+            if before is None:
+                # Nothing was switched: drop the staged copy so the same commit can be released again.
+                shutil.rmtree(staged, ignore_errors=True)
+                running = f'Release aborted before the switch; {previous_version} is running'
+                down, settled = f'Release aborted before the switch; {previous_version} is still installed', True
+            elif not schema_moved(db, before):
                 controller.stop()
+                if not schema_moved(db, before):
+                    if previous_state is not None:
+                        save(state, previous_state)
+                    controller.start(previous)
+                    running = down = 'Health check failed; rolled back to ' + previous_version
+                    health(args.port, previous_version, min(args.health_seconds, 10), args.stall_ms, {}, controller.alive,
+                           args.ready_seconds, unresponsive_seconds=args.unresponsive_seconds)
+                    settled = True
+            if not settled:
+                print('Schema only moves forward: no rollback; the installed version stays up.', flush=True)
+        except Exception as second:
+            cause, settled = f'{cause} (recovery did not finish: {second})', False
+        answering = ensure_running(controller, args.port, min(args.ready_seconds, 120))
+        if answering is None:
+            raise RuntimeError(f'{down}, but the server is NOT running and could not be started. '
+                               f'Start it with: {controller.hint}. {cause}') from error
+        print('Server left running' + (f', answering as {answering}' if answering else ', not answering yet')
+              + f'. If it stops, start it with: {controller.hint}', flush=True)
+        if settled:
+            marker.unlink()
+        raise RuntimeError(f'{running}: {cause}') from error
     finally:
         if args.isolated:
             controller.stop()
+
+
+def finish_interrupted(args, home, job, marker):
+    """A marker left behind a release that is already installed is cleared by a health check, not a rebuild."""
+    version = str(read(marker).get('version'))
+    package = home / 'runtime/versions' / version / 'package.json'
+    db = home / 'userdata/state.sqlite'
+    wanted = read(package) if package.is_file() else {}
+    installed = installed_version(args, home)
+    if (installed != version or ledger(db) != wanted.get('migrations')
+            or wanted.get('sourceCommit') != pinned_commit(args, Path(args.repo).resolve())):
+        raise RuntimeError(f'An interrupted release of {version} needs inspection ({installed} is installed): {marker}')
+    print(f'{version} is already installed with its ledger; checking health instead of rebuilding', flush=True)
+    controller = controller_for(args, home, job)
+    if not args.isolated and not WINDOWS:
+        controller.inspect()
+    try:
+        if ensure_running(controller, args.port, min(args.ready_seconds, 120)) is None:
+            raise RuntimeError(f'{version} is installed, but the server is NOT running and could not be started. '
+                               f'Start it with: {controller.hint}')
+        try:
+            result = health(args.port, version, args.health_seconds, args.stall_ms, {}, controller.alive,
+                            args.ready_seconds, unresponsive_seconds=args.unresponsive_seconds)
+            if ledger(db) != wanted['migrations']:
+                raise Unhealthy('wrong migration ledger', 'the live ledger differs from the release')
+        except Unhealthy as error:
+            raise RuntimeError(f'{version} is running but failed the health check: {error}') from error
+    finally:
+        if args.isolated:
+            controller.stop()
+    marker.unlink()
+    print(f'Released {version}: already installed, healthy {args.health_seconds:g}s; cleared {marker.name}', flush=True)
+    return {'status': 'healthy', 'health': result}
 
 
 def switchover_activate(args, built, job, plan):
@@ -732,9 +912,7 @@ def switchover_activate(args, built, job, plan):
     previous = home / 'runtime/versions' / previous_version
     if not previous.is_dir():
         raise RuntimeError('Retained custom runtime is missing: ' + str(previous))
-    controller = (Isolated(home, job, args.port) if args.isolated
-                  else Windows(home, job, args.port, args.desktop) if WINDOWS
-                  else Linux(home, job, args.port))
+    controller = controller_for(args, home, job)
     if not args.isolated:
         controller.inspect()
     target = home / 'runtime/versions' / built['version']
@@ -858,9 +1036,7 @@ def switchover_rollback(args, root):
     previous = home / 'runtime/versions' / record['previousVersion']
     if not previous.is_dir():
         raise RuntimeError('Retained custom runtime is missing: ' + str(previous))
-    controller = (Isolated(home, root, args.port) if args.isolated
-                  else Windows(home, root, args.port, args.desktop) if WINDOWS
-                  else Linux(home, root, args.port))
+    controller = controller_for(args, home, root)
     if not args.isolated:
         controller.inspect()
     current = fingerprint(db)
@@ -924,7 +1100,11 @@ def parser():
                    help='Budget for the lazy V1 transcript import to reach matching counts')
     p.add_argument('--ready-seconds', type=float, default=900, help='Startup budget including 30 seconds of responsive descriptor and web probes')
     p.add_argument('--health-seconds', type=float, default=120)
-    p.add_argument('--stall-ms', type=float, default=2000)
+    p.add_argument('--stall-ms', type=float, default=2000, help='Per-probe HTTP timeout; slower probes and event-loop stalls are counted')
+    p.add_argument('--unresponsive-seconds', type=float, default=60,
+                   help='Health fails only after this long without one successful probe')
+    p.add_argument('--close-seconds', type=float, default=600,
+                   help='Windows: longest wait for the desktop to close by itself; never forced')
     p.add_argument('--disk-growth-gib', type=float, default=2.0,
                    help='WAL and V2 growth kept free beside the live home')
     p.add_argument('--build-disk-gib', type=float, default=3.0,
@@ -956,7 +1136,8 @@ def main(argv=None):
         raise RuntimeError('--prebuilt-runtime only applies to switchover')
     if args.rollback and args.mode != 'switchover':
         raise RuntimeError('--rollback only applies to switchover')
-    thresholds = [args.migration_seconds, args.ready_seconds, args.health_seconds, args.stall_ms]
+    thresholds = [args.migration_seconds, args.ready_seconds, args.health_seconds, args.stall_ms,
+                  args.unresponsive_seconds, args.close_seconds]
     if args.mode == 'switchover':
         thresholds.append(args.import_seconds)
     if min(thresholds) <= 0 or not 1024 <= args.port <= 65535:
@@ -995,8 +1176,10 @@ def main(argv=None):
                       f'VACUUM INTO job copy if migrations pending; refuse failure or >{args.migration_seconds}s; delete copy',
                       'lock runtime/t3w-deploy/host.lock; refuse unfinished deployment claims',
                       'stage a new version; stop t3code.service then app-t3code-agents.slice; switch; start' if not WINDOWS else 'interactive desktop: captured PID close; swap repacked server.asar/app.asar; start',
-                      f'wait up to {args.ready_seconds:g}s for readiness; then check HTTP, exact version, event-loop stalls for {args.health_seconds}s',
-                      'on failure: stop; rollback only if ledger AND schema unchanged; otherwise leave stopped'],
+                      f'wait up to {args.ready_seconds:g}s for readiness; then check HTTP and exact version for {args.health_seconds}s; '
+                      f'fail only on {args.unresponsive_seconds:g}s without an answer, a wrong version or a wrong ledger',
+                      'on failure: roll back only if ledger AND schema unchanged; otherwise keep the new version running and exit non-zero',
+                      'an already installed release with a leftover marker: check health and clear the marker, no rebuild'],
             'windows': 'In signed-in desktop PowerShell: node "$HOME\\t3-workflows\\bin\\t3w.mjs" release --ref origin/main'}, indent=2))
         check_claim(home)
         return
@@ -1040,10 +1223,13 @@ def main(argv=None):
             os.makedirs(home / 'runtime/t3w-deploy', exist_ok=True)
             return switchover_rollback(args, root)
         return switchover(args, root)
-    job = root / ('release-' + time.strftime('%Y%m%d-%H%M%S') + '-' + uuid.uuid4().hex[:6])
-    job.mkdir(mode=0o700)
-    print('Release work and result: ' + str(job), flush=True)
-    with host_lock(home):
+    marker = home / 'runtime/t3w-deploy/release-in-progress.json'
+    with host_lock(home, marker=False):
+        if marker.exists():
+            return finish_interrupted(args, home, root, marker)
+        job = root / ('release-' + time.strftime('%Y%m%d-%H%M%S') + '-' + uuid.uuid4().hex[:6])
+        job.mkdir(mode=0o700)
+        print('Release work and result: ' + str(job), flush=True)
         before = ledger(home / 'userdata/state.sqlite')
         built = build(args, job)
         rehearsal = rehearse(built, home / 'userdata/state.sqlite', job, args.migration_seconds)
@@ -1055,7 +1241,9 @@ def main(argv=None):
             save(job / 'result.json', {'status': 'failed', 'error': str(error), 'build': built})
             raise
         save(job / 'result.json', {**result, 'build': built})
-        print(f"Released {built['version']}; migrations {rehearsal['seconds']}s; healthy {args.health_seconds}s. Result: {job / 'result.json'}", flush=True)
+        observed = result['health']
+        print(f"Released {built['version']}; migrations {rehearsal['seconds']}s; healthy {args.health_seconds}s "
+              f"(failed probes: {observed['failedProbes']}, event-loop stalls: {observed['eventLoopStalls']}). Result: {job / 'result.json'}", flush=True)
 
 
 if __name__ == '__main__':
