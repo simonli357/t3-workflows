@@ -82,11 +82,12 @@ worker ID; do not hide it by starting another session or changing account or mod
 When the user states a standing rule, set it once with `t3_allocation_policy`,
 with `expiresAt` when it is for a duration, and never restate it per start.
 
-| The user says            | `setRules` entry                                                    |
-| ------------------------ | ------------------------------------------------------------------- |
-| "never XL"               | `{account: "XL", kind: "exclude"}`                                  |
-| "1 ARA max"              | `{account: "ARA", kind: "maxWorkers", value: 1}`                    |
-| "prefer ES until Friday" | `{account: "ES", kind: "priority", value: 10, expiresAt: ISO_TIME}` |
+| The user says                   | Input                                                                                    |
+| ------------------------------- | ---------------------------------------------------------------------------------------- |
+| "never XL"                      | `setRules: [{account: "XL", kind: "exclude"}]`                                           |
+| "1 ARA max"                     | `setRules: [{account: "ARA", kind: "maxWorkers", value: 1}]`                             |
+| "prefer ES until Friday"        | `setRules: [{account: "ES", kind: "priority", value: 10, expiresAt: ISO_TIME}]`          |
+| "workers on Fable medium today" | `workerModels: {claude: {model: FABLE_MODEL_ID, effort: "medium", expiresAt: ISO_TIME}}` |
 
 A start pinned to an excluded or full account is refused with the rule as its
 error: report that instead of working around it. Quota and pacing warnings are
