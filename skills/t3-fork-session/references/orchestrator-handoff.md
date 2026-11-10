@@ -1,13 +1,72 @@
-# Orchestrator handoff
+# Switch, renew, hand off, reclaim
 
-## Renew a master
+Each keyword below authorizes the action without further questions. Keep every
+profile constraint the user did not change.
 
-On measured accounts, compactions or `latestContextTokens` nearing
-`contextCapacityTokens` in `t3_usage_measurements` also signal renewal. Give the
-successor what it needs to act, usually one to three pages, and point to files,
-branches, PRs and reports instead of pasting them. Carry over only instructions
-the user actually gave, quoting them where the wording matters. Do not add rules,
-limits or prohibitions of your own; label your own decisions as yours:
+## "switch WORKER to ACCOUNT [model] [effort]"
+
+Keeps the session and its conversation.
+
+1. `t3w worker-profile --thread-id ID --provider ACCOUNT [--model M] [--effort E]
+   [--environment PEER]` validates without changing anything. Omitted values stay.
+2. Pass its JSON to `t3_worker_control`.
+
+A running turn finishes on the old profile. A turn that already stopped is not
+retried: resume it with `t3_worker_send`. An assignment queued behind a usage
+limit starts on the new account at once. Another provider receives a summary, not
+the native history. The title keeps its old model suffix.
+
+## "renew WORKER [on ACCOUNT [model]]"
+
+Replaces the worker with a new session, fresh unless the user says "from base".
+
+1. Wait until the worker has no running turn (the user can Stop it).
+2. Write its full assignment, progress, branch and worktree, evidence and next
+   steps to a file, with the 5-minute wait line and only rules the user gave.
+3. Start the replacement as any new worker (`t3w fork --mcp-plan` for "from base").
+   If the name would not change, add 2 to the keyword (`c344_camera_opus` →
+   `c344_camera2_opus`).
+4. Settle the old worker.
+
+## "renew yourself"
+
+Hands this master and its workers to a successor. Defaults: same project, account,
+model and effort; fresh context; the title's generation number incremented, or 2
+appended (`simulator7_es_master` → `simulator8_es_master`, `vio_stream_res_bug` →
+`vio_stream_res_bug2`). "From base" forks the account's base. The successor must
+be on this computer.
+
+A working-time warning does not require this. When automatic renewal is enabled
+T3 starts the successor itself: never create a competing one.
+
+1. Act on reports that need a decision now, or list them in the prompt.
+2. Write the prompt below to a temporary file.
+3. With one ID from `node -p 'crypto.randomUUID()'`, run
+   `t3w spawn --handoff-plan --project P --provider ACCOUNT --model MODEL --name TITLE --thread-id ID --task-file FILE`
+   (`t3w fork --handoff-plan` for base; `--effort` selects another effort). Use
+   `--self-fork` only when the user asks to keep the full history: it copies what
+   renewal is meant to shed. After scheduling a self-fork, end the turn.
+4. Pass the JSON unchanged to `t3_orchestrator_handoff`.
+5. Give the user the successor's title and ID, stop guards that wake this
+   session, and end the turn.
+
+Results: `completed` means the workers moved and the successor's first turn is
+queued, not that it ran. Check `startupState` and `startupError`; on a startup
+failure resume that same session, never start another successor. `queued` means
+this session is still busy. `error` keeps the old ownership: fix the cause and
+retry the identical input and ID. `t3_orchestrator_handoff_status` inspects a
+handoff, or cancels it before ownership moves.
+
+Afterwards the workers and their future reports belong to the successor. Do not
+forward stray messages to it or to past masters. If the user gives this session
+new work, create and supervise new workers directly, without asking and without
+reclaiming.
+
+### Prompt
+
+One to three pages. Point to files, branches, PRs and reports instead of pasting
+them. Carry over only instructions the user gave, quoted where wording matters;
+label your own decisions as yours.
 
 ```text
 You are <successor title> (<successor ID>), the new master, taking over from
@@ -25,75 +84,20 @@ Evidence: paths to reports, branches, PRs, logs.
 Guards that wake the master, with the command to restart them for <successor ID>.
 ```
 
-The successor first lists its workers and reads only the summaries/evidence it
-needs. Restart relevant guards. Send a peer the new ID only when coordination
-requires it, with `t3_session_send`. Workers report with
-`t3_worker_report`; they do not need a remembered master ID. Do not notify every
-past master or send workers acknowledgment/correction turns merely to announce
-the ownership change.
+The successor lists its workers and reads them before any follow-up, restarts the
+guards, and sends a peer its new ID only when coordination requires it. It does
+not announce the change to workers or past masters.
 
-## Modes
+## "reclaim WORKERS"
 
-Choose the context for the successor:
-
-- **Base plus summary:** `t3w fork --provider ARA --model opus --name next_master_opus --thread-id UUID --task-file /tmp/handoff.txt --handoff-plan` uses the configured base. Add `--project` when needed.
-- **Self-fork:** add `--self-fork`. T3 resolves the authenticated session ID itself. The destination can use another provider/account/model. The server waits for the source turn to end before copying its native and visible history, then applies the destination profile. Cross-provider continuation uses T3's normal context handoff; it does not transplant one provider's native transcript into another.
-- **Fresh plus summary:** use `t3w spawn` with `--handoff-plan` and the target project. No base is needed.
-
-Use the capacity policy for unspecified choices. Profile efforts remain the defaults;
-`--effort` explicitly selects another advertised effort. Pass the emitted JSON
-unchanged to `t3_orchestrator_handoff`. The helper only validates; the authenticated
-MCP caller establishes which orchestrator is relinquishing its workers.
-
-Every mode uses the context prompt template above. A self-fork still needs a clear
-instruction to take over; inherited tasks are context, not new assignments.
-
-Reuse the destination ID and identical input on retries. `queued` means the source
-is still busy or paused. End the current turn after scheduling a self-fork; waiting
-inside it prevents the fork. `completed` means ownership transferred and successor
-startup queued, not that its model ran or completed the assignment. Check `startupState` and `startupError` for delivery, then inspect the
-successor for provider startup failures; resume that same session, not another successor.
-`error` retains the old ownership; resolve its cause and retry the same input.
-Status and error details survive server restarts. Cancellation is available while queued or failed, before ownership transfers.
-Any partially prepared successor conversation is retained without starting its assignment.
-
-All directly owned workers move together, including their assignments, read cursors,
-report preferences and undelivered reports. Running work is not interrupted.
-Previously delivered reports remain in the old conversation; the successor must
-list/read current workers before issuing follow-ups. Future reports target the new
-master. Worker model/account/effort and permissions do not change. The old session
-is preserved with its handoff history. On `workerRetirementWarning` servers,
-retirement returns one informational warning per session and the action proceeds,
-without user confirmation. If the user gives the former master new work, it can
-create and supervise new workers directly; reclaim is not needed for that.
-Previously transferred workers still belong to their current master. The successor
-is an independent orchestrator, not another worker reporting to its predecessor. This transfers direct
-worker ownership on one T3 environment; it does not move unrelated peers, nested
-workers, an upstream owner's assignment, or sessions on another host.
+A former master takes back selected workers it handed off: call
+`t3_worker_reclaim` with `workerThreadIds` and a stable `clientRequestId`. No
+user approval is needed. The successor keeps its other workers. Running work is
+not interrupted and nothing new is sent, so read each worker before following up.
 
 ## Assign, transfer or release ownership
 
-Authenticated agents can use `t3_session_ownership_read` and then
-`t3_session_ownership` directly. Supply the current expected owner and revision,
-the target owner (null to release), and a stable request ID. No `userRequest`,
-quote, recent direct-user turn or additional approval is required, including
-while handling worker reports or peer coordination. The execution host and new
-owner must be online; the former master's host is not required. Preserve the
-same request and ID after an uncertain response.
-
-## Reclaim selected workers
-
-An authenticated former master can reclaim selected workers it previously handed
-off directly with `t3_worker_reclaim`. No user approval, quote or recent direct-user
-turn is required. Supply `workerThreadIds` and a stable `clientRequestId`, unchanged
-on retries. The server checks historical ownership and runtime permissions.
-Creating new workers does not require reclaiming earlier workers.
-
-Reclaim atomically moves the named workers and their undelivered reports and
-reactivates the claimant. The successor stays active and keeps its other
-workers. Running assignments, profiles, report preferences and read cursors are
-preserved, including workers running on a linked machine. Inspect current work
-before issuing a concrete follow-up; reclaim itself sends no new assignment.
-An identical retry returns the original receipt. The tool refuses unrelated
-sessions and broader worker permissions. A pending digest from an older build
-may need review before a partial reclaim; do not bypass that check.
+Read `t3_session_ownership_read`, then call `t3_session_ownership` with the
+current owner and revision, the target owner (null to release) and a stable
+request ID. No user approval is needed. The worker's computer and the new owner
+must be online. Retry an uncertain response with the same request and ID.

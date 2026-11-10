@@ -1,46 +1,15 @@
-# Scandy Worker Conventions
+# Scandy worker names
 
-## Names
+Apply [conventions.md](conventions.md) with these prefixes, for the Scandy
+profile only:
 
-Use lowercase for the entire worker name, including the selected model suffix: `_sol`,
-`_astra`, `_opus`, `_sonnet`, or `_flash`. Append it once, after the descriptive keyword
-or `_worker`. The base-session names remain `es_base`, `ara_base`, `ad_base`,
-`sl_base`, `ds_base`, and `xl_base`.
+- `a` plus the issue number for ScandyAutonomy, `c` plus the issue number for
+  ScandyControl, without `#`. The repository that owns the issue determines the
+  letter, not the files being changed.
+- The epic prefix uses the epic's own repository letter: a Control issue under an
+  Autonomy epic is `a569_c344_camera_sol`.
+- Read the issue's parent or explicit epic reference to find its epic. For nested
+  tasks use the closest explicitly identified epic, not every intermediate parent.
 
-For a GitHub issue, use `<epic>_<issue>_<keyword>_<model>` (omit `<epic>_` when absent):
-
-- `<issue>` is `a` plus the issue number for ScandyAutonomy, or `c` plus the
-  issue number for ScandyControl. Use lowercase `a`/`c` without a literal `#`.
-  The owning repository determines the letter, not the files being changed.
-- If the issue has an established epic, use that epic's repository letter and
-  number as the prefix. Example: `a569_a635_localization_opus`; a Control issue
-  under an Autonomy epic could be `a569_c344_camera_sol`.
-- Always add one lowercase keyword that best describes the work, immediately
-  after the issue and before the model. Without an epic, use `c344_camera_sol`
-  or `a635_localization_opus`. Use one word, not a phrase, generic task verb,
-  account name, or date.
-
-Read the issue's parent/epic relationship or explicit epic reference to determine
-its epic. For nested tasks, use the closest explicitly identified epic, not an
-arbitrary related issue or every intermediate parent. If no epic is identified,
-omit the epic prefix; do not invent an epic number or block creation on naming.
-Keep the full repository and issue reference in the assignment text.
-
-Apply these names to new workers. Existing workers remain addressable by thread
-ID and need not be renamed; do not change a title during an idempotent spawn retry.
-
-For other work, use one or two short descriptive words followed by `worker`,
-in lowercase, with underscores between words, then the lowercase model suffix.
-Examples: `camera_worker_flash`, `camera_preview_worker_opus`, and
-`release_review_worker_astra`.
-
-Beyond the required descriptive keyword and model suffix, do not append provider
-names, dates, or a longer task summary to an issue worker's name. The helper accepts the title chosen by the
-agent and does not enforce these naming conventions.
-
-## Accounts, bases and fixed model efforts
-
-Run `t3w profile --project scandy` for the current configured account aliases,
-base names, native models, and fixed efforts. Both Scandy repositories share the
-configured Scandy base project. These values belong to configuration, not a
-second inventory in this document.
+`t3w profile --project scandy` prints the accounts, base names and models. Both
+Scandy repositories share the configured Scandy base project.
