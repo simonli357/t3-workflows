@@ -28,6 +28,10 @@ for (const target of targets) {
   for(const name of ["SKILL.md","scripts/config.mjs","scripts/fork-session.mjs","scripts/refresh-bases.mjs"])
     if(!readFileSync(path.join(dest,name),"utf8").trim()) throw new Error(`Empty installed file: ${dest}/${name}`);
   console.log(`${check ? "Verified" : "Installed"} ${dest}`);
+  const report = path.join(target,"report-progress");
+  link(report,path.join(root,"skills","report-progress"));
+  if(!readFileSync(path.join(report,"SKILL.md"),"utf8").trim()) throw new Error(`Empty installed file: ${report}/SKILL.md`);
+  console.log(`${check ? "Verified" : "Installed"} ${report}`);
 }
 const bin = path.join(home,".local","bin");
 if (process.platform === "win32") {
