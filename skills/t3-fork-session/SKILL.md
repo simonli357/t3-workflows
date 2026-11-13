@@ -14,10 +14,10 @@ the managed worker tools below, never `delegate_task` or an unmanaged session.
 1. **Name.** `t3w profile [--project NAME_OR_PATH]` prints the account aliases,
    models, fixed efforts and the project's naming policy. Name the worker as in
    [conventions.md](references/conventions.md).
-2. **Scores.** Give the assignment's `difficulty` and `stakes`, integers 0-10:
-   0-3 routine, 4-6 moderate, 7 demanding, 8 very demanding, 9 extreme. The
-   server picks account, model and effort together. Pin one only when the user
-   named it for this worker. A fork keeps its source's account and model.
+2. **Scores.** Give `difficulty` and `stakes`, integers 0-10 (0-3 routine, 4-6
+   moderate, 7 demanding, 8 very demanding, 9 extreme), and the job's length in
+   `hours`. The server picks account, model and effort. Pin one only when the
+   user named it for this worker. A fork keeps its source's account and model.
 3. **Computer.** Use the one the user named. Otherwise `t3_recommend_computer`
    with `projectId` gives each computer's load numbers and the project's ID
    there: choose from those, what the task needs and where its data is. Check
@@ -48,13 +48,14 @@ no owner ID or mode fields.
   "title": "c344_camera",
   "prompt": "complete assignment text",
   "difficulty": 7,
-  "stakes": 5
+  "stakes": 5,
+  "hours": 2
 }
 ```
 
-`t3w environment` prints this computer's `environmentId`. `state: "drained"` in
-the result means nothing has room until `drainedUntil`: report that instead of
-working around it. Pins: [selection-policy.md](references/selection-policy.md).
+`t3w environment` prints this computer's `environmentId`. `state: "drained"`
+means all is out until `drainedUntil`: report it, do not work around it. Pins:
+[selection-policy.md](references/selection-policy.md).
 
 **Fork:** plan it, then pass the printed JSON unchanged to `t3_worker_spawn`.
 
@@ -86,8 +87,9 @@ A standing preference is set once with `t3_allocation_policy`, never per start.
 | "prefer ES, then XL"     | `accountOrder: ["ES", "XL"]`                                                                                  |
 | "stop AD workers at 90%" | `setCaps: [{account: "AD", weeklyPercent: 90, fiveHourPercent: null, stopWorkers: true, stopMasters: false}]` |
 
-The order decides only between accounts with similar room. "Never XL" is that
-account's workers switch in Settings, Provider allocation: ask the user to set it.
+The order decides only between accounts with similar room. A daily goal
+(`setGoals`) only ranks: a pinned account over its goal still starts. "Never XL"
+is that account's workers switch in Settings; ask the user.
 
 ## Send a correction
 
@@ -101,16 +103,16 @@ Unrelated work goes to a fresh worker, always so once a report says the worker's
 context is large. A working-time warning in a report is advisory: let the
 authorized work continue.
 
-An assignment that hits a usage limit or account cap is not lost: T3 moves it to
-another account, waits for a near reset, or continues on the nearest model with
-room. Do not resend it. Never auto-approve a worker's input or approval
-request. After a server restart, inspect current state before resuming anything.
+A worker that hits a limit or cap is not lost: T3 moves it, waits for a near
+reset, or changes model. Do not resend it. Never auto-approve a worker's input
+or approval request. After a server restart, inspect current state before
+resuming anything.
 
 ## Read a worker
 
 - `t3_worker_list` rediscovers your workers after compaction or a restart.
 - `t3_worker_read` continues from the last read, including intermediate updates.
-- `t3w find NAME` gives just the recent prompts and final replies, plus
+- `t3w find NAME` gives the recent prompts and final replies, plus
   `lastError` and `usageLimit` when a report is missing.
 
 Do not poll or build watchers: reports wake an idle master, so continue other
