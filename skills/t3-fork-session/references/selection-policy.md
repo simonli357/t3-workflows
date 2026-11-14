@@ -1,40 +1,36 @@
-# Pins and allocation rules
+# Pins and allocation policy
 
 ## Pin what the user chose for this worker
 
-In `t3_start_allocated_assignment`, with `selection: "automatic"`:
+In `t3_start_allocated_assignment`, and in `t3_allocate_account`, which previews
+the same choice without starting anything:
 
-- Account: `request.explicitInstanceId`.
-- Model: `request.override: {driver, model, reason}` keeps the table's effort; add
-  `options` to pin the effort too. The driver must be in `allowedDrivers`.
-- Everything: the `selection: "explicit"` request takes `driver`, `model` and
-  `options` directly.
-- Exact scores instead of a tier, only when the user gives them:
-  `request.assessment` with 0-10 difficulty and stakes and their reasons.
+- Account: `account`, its instance ID. Exact: drained there means refused.
+- Model: `model`, the model ID, with the table's effort; add `effort` to pin that
+  too. A pinned model that is drained everywhere is replaced like any other.
+- Codex: `driver: "codex"`, only when the user asked for Codex.
 
-Preserve every explicit option on retries. `t3_allocate_account` with
-`preview: true` shows what would be chosen without starting anything.
+Preserve every pin on retries.
 
-Never change a tier, retune the policy, clear historical errors, redeem reset
-credits or start test turns to make an account eligible. Quota pressure never
-selects a weaker model or another computer.
+## How the server chooses
 
-Forks, moves, follow-ups and handoffs keep their existing account and model; they
-are not fresh allocations. Use `reassessment` only after a substantive failure or
-scope change, with new assignment and thread IDs, and get the user's consent
-before moving to another provider family. A quota warning, transport failure or
-renewal does not justify it.
+The table gives a model and effort for the scores. Each account's limits are
+projected to the job's end (learned costs, every working session on the login,
+outside use). Accounts that last the job within their daily goal lead, by most
+room until the tightest reset; close ones follow the preference order. Only a
+used-up window, a provider rejection or a hard cap stops an account. Fitting
+nowhere, a start waits for a reset within 30 minutes (45 at stakes 8+), else
+takes the nearest rung that fits (two at most), else the fallback, else the
+account lasting longest. Codex never changes model.
 
-## Allocation rules
+Never retune the policy, clear errors, redeem reset credits or start test turns
+to make an account usable. Forks, moves, follow-ups and handoffs keep their
+account and model.
 
-`t3_allocation_policy` with no fields reads the policy. `account` is the alias or
-instance ID and covers that login on every computer.
+## Policy
 
-| The user says                     | Input                                                                |
-| --------------------------------- | -------------------------------------------------------------------- |
-| "AD is exhausted until it resets" | `setRules: [{account: "AD", kind: "exclude", expiresAt: RESET_TIME}]` |
-| "XL is fine again"                | `clearRules: [{account: "XL", kind: "exclude"}]`                     |
-
-Rules are per account, not per task type: for "AD for rendering workers", pin
-`explicitInstanceId` on those starts. The same tool sets pacing curves, hard caps
-and timed overrides when the user asks for them.
+`t3_allocation_policy` with no fields reads it. `account` is the alias or
+instance ID and covers that login on every computer. It sets the preference
+order and its margin, hard caps, daily goals, `fableWorkers`, the ladder, the
+fallback, table entries (`showTable` returns one) and how long a limited worker
+waits before changing model. Change it only when the user asks.

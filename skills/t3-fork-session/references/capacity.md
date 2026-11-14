@@ -1,7 +1,7 @@
 # Quota, load and usage diagnostics
 
-Read-only; none of this starts a worker or stops a start. Starts use the server's
-recommendation, so run these only when the user asks about capacity or a start
+Read-only; none of this starts a worker or stops a start. The server chooses the
+account itself, so run these only when the user asks about capacity or a choice
 needs explaining.
 
 ```bash
@@ -15,7 +15,7 @@ Reading the report:
 
 - Each account lists its quota windows (used/remaining, reset time, reading age)
   and active sessions. `limitedSessions` and `limitedUntil` come from past provider
-  rejections: surface them as a warning, not a veto of an explicit account choice.
+  rejections: until that time the server treats the account as drained.
 - `load.byModelEffort` separates `working`, `starting`, `waiting`,
   `backgroundOnly` and `uncertain`. Masters count too. A worker-style name is not
   proof of ownership; `t3_worker_list` gives your actual workers.

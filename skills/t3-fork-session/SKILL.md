@@ -1,6 +1,6 @@
 ---
 name: t3-fork-session
-description: Create fresh T3 sessions, fork conversations, or move native sessions between linked computers, manage workers and account allocation rules, and find, read, or message other sessions, including on linked machines. Use for T3 delegation, worker management, and session coordination; not unrelated work in the current session. User keywords "renew yourself" (hand this master to a successor), "switch WORKER to ACCOUNT" (change a worker's provider in place), "renew WORKER" (replace a worker with a new session), and "reclaim WORKERS" (take selected previously handed-off workers back).
+description: Create fresh T3 sessions, fork conversations, or move native sessions between linked computers, manage workers and the allocation policy, and find, read, or message other sessions, including on linked machines. Use for T3 delegation, worker management, and session coordination; not unrelated work in the current session. User keywords "renew yourself" (hand this master to a successor), "switch WORKER to ACCOUNT" (change a worker's provider in place), "renew WORKER" (replace a worker with a new session), and "reclaim WORKERS" (take selected previously handed-off workers back).
 ---
 
 # T3 Sessions and Workers
@@ -14,14 +14,14 @@ the managed worker tools below, never `delegate_task` or an unmanaged session.
 1. **Name.** `t3w profile [--project NAME_OR_PATH]` prints the account aliases,
    models, fixed efforts and the project's naming policy. Name the worker as in
    [conventions.md](references/conventions.md).
-2. **Profile.** Start on the server's recommendation for model/effort and account.
-   Pin only what the user specified for this worker. Add `tier: "routine"` or
-   `"hard"` when the assignment is clearly lighter or heavier than normal. A fork
-   keeps its source's account and model.
-3. **Computer.** Use the one the user named. Otherwise call `t3_recommend_computer`
-   with the task's `needs` and `projectId`, and use its `recommendedEnvironmentId`
-   with that computer's project ID from `hosts[].projects`. Check heavy work on
-   the chosen computer with `workenv capacity` before starting it.
+2. **Scores.** Give `difficulty` and `stakes`, integers 0-10 (0-3 routine, 4-6
+   moderate, 7 demanding, 8 very demanding, 9 extreme), and the job's length in
+   `hours`. The server picks account, model and effort. Pin one only when the
+   user named it for this worker. A fork keeps its source's account and model.
+3. **Computer.** Use the one the user named. Otherwise `t3_recommend_computer`
+   with `projectId` gives each computer's load numbers and the project's ID
+   there: choose from those, what the task needs and where its data is. Check
+   heavy work on the chosen computer with `workenv capacity` first.
 4. **Prompt.** Assign a whole outcome, not single steps: "review, attempt and
    verify R1a" is one assignment and one report. Keep the task intact, with issue
    repository/number, acceptance criteria and the user's constraints, and give the
@@ -41,23 +41,21 @@ no owner ID or mode fields.
 
 ```json
 {
-  "kind": "worker",
+  "assignmentId": "stable-assignment-id",
+  "threadId": "stable-destination-thread-id",
+  "environmentId": "chosen-computer-environment-id",
   "projectId": "target-project-id",
   "title": "c344_camera",
   "prompt": "complete assignment text",
-  "tier": "hard",
-  "request": {
-    "selection": "automatic",
-    "assignmentId": "stable-assignment-id",
-    "threadId": "stable-destination-thread-id",
-    "environmentId": "chosen-execution-environment-id",
-    "allowedDrivers": ["codex", "claudeAgent"]
-  }
+  "difficulty": 7,
+  "stakes": 5,
+  "hours": 2
 }
 ```
 
-`t3w environment` prints this computer's `environmentId`. Pins for choices the
-user made are in [selection-policy.md](references/selection-policy.md).
+`t3w environment` prints this computer's `environmentId`. `state: "drained"`
+means all is out until `drainedUntil`: report it, do not work around it. Pins:
+[selection-policy.md](references/selection-policy.md).
 
 **Fork:** plan it, then pass the printed JSON unchanged to `t3_worker_spawn`.
 
@@ -77,21 +75,21 @@ Afterwards report the actual account, model/effort, thread ID and observed state
 Accepted is not completed. If the provider fails, report its actual error and the
 worker ID; do not hide it by starting another session or changing account or model.
 
-## Allocation rules
+## Limits and preferences
 
-When the user states a standing rule, set it once with `t3_allocation_policy`,
-with `expiresAt` when it is for a duration, and never restate it per start.
+A worker limit the user gives you ("at most 3 workers", "1 on ARA") is yours
+alone: T3 does not store it. Remember it and keep to it.
 
-| The user says                   | Input                                                                                    |
-| ------------------------------- | ---------------------------------------------------------------------------------------- |
-| "never XL"                      | `setRules: [{account: "XL", kind: "exclude"}]`                                           |
-| "1 ARA max"                     | `setRules: [{account: "ARA", kind: "maxWorkers", value: 1}]`                             |
-| "prefer ES until Friday"        | `setRules: [{account: "ES", kind: "priority", value: 10, expiresAt: ISO_TIME}]`          |
-| "workers on Fable medium today" | `workerModels: {claude: {model: FABLE_MODEL_ID, effort: "medium", expiresAt: ISO_TIME}}` |
+A standing preference is set once with `t3_allocation_policy`, never per start.
 
-A start pinned to an excluded or full account is refused with the rule as its
-error: report that instead of working around it. Quota and pacing warnings are
-advice and never stop a start.
+| The user says            | Input                                                                                                         |
+| ------------------------ | ------------------------------------------------------------------------------------------------------------- |
+| "prefer ES, then XL"     | `accountOrder: ["ES", "XL"]`                                                                                  |
+| "stop AD workers at 90%" | `setCaps: [{account: "AD", weeklyPercent: 90, fiveHourPercent: null, stopWorkers: true, stopMasters: false}]` |
+
+The order decides only between accounts with similar room. A daily goal
+(`setGoals`) only ranks: a pinned account over its goal still starts. "Never XL"
+is that account's workers switch in Settings; ask the user.
 
 ## Send a correction
 
@@ -105,15 +103,16 @@ Unrelated work goes to a fresh worker, always so once a report says the worker's
 context is large. A working-time warning in a report is advisory: let the
 authorized work continue.
 
-An assignment that hits a usage limit or account cap is not lost: T3 moves it to
-another account or queues it until the reset. Do not resend it. Never auto-approve a worker's input or approval
-request. After a server restart, inspect current state before resuming anything.
+A worker that hits a limit or cap is not lost: T3 moves it, waits for a near
+reset, or changes model. Do not resend it. Never auto-approve a worker's input
+or approval request. After a server restart, inspect current state before
+resuming anything.
 
 ## Read a worker
 
 - `t3_worker_list` rediscovers your workers after compaction or a restart.
 - `t3_worker_read` continues from the last read, including intermediate updates.
-- `t3w find NAME` gives just the recent prompts and final replies, plus
+- `t3w find NAME` gives the recent prompts and final replies, plus
   `lastError` and `usageLimit` when a report is missing.
 
 Do not poll or build watchers: reports wake an idle master, so continue other
@@ -185,7 +184,7 @@ only reports follow ownership to a successor.
 
 - Switch a worker's account, renew a worker, "renew yourself", reclaim workers,
   transfer ownership: [orchestrator-handoff.md](references/orchestrator-handoff.md).
-- Account pins, exact scores, clearing rules, caps and pacing:
+- Pins, how the server chooses, the ladder, caps and the table:
   [selection-policy.md](references/selection-policy.md).
 - Quota, load and usage diagnostics: [capacity.md](references/capacity.md).
 - Workers and messages on linked computers, linking computers:
