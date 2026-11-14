@@ -34,3 +34,7 @@ instance ID and covers that login on every computer. It sets the preference
 order and its margin, hard caps, daily goals, `fableWorkers`, the ladder, the
 fallback, table entries (`showTable` returns one) and how long a limited worker
 waits before changing model. Change it only when the user asks.
+
+"Only Fable workers" (Fable mode) is `fableOnly: true`: every worker runs on
+Fable low, medium or high and only those stand in; a pinned model is kept. It
+turns `fableWorkers` on, and `fableWorkers: false` turns it off.
