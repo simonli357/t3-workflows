@@ -7,7 +7,9 @@
     "~/.codex-antoine",
     "~/.claude",
     "~/.claude-eol",
-    "~/.claude-xinya"
+    "~/.claude-xinya",
+    "~/.claude-antoine",
+    "~/.claude-xiyang"
   ],
   "projects": {
     "scandy": {
@@ -21,6 +23,8 @@
         "XL": "xl_base",
         "ES": "es_base",
         "ARA": "ara_base",
+        "XY": "xy_base",
+        "AC": "ac_base",
         "AD": "ad_base",
         "SL": "sl_base",
         "DS": "ds_base"

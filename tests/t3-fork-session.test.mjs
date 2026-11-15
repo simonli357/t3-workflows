@@ -61,7 +61,7 @@ class FakeClient {
 
 test("all account/model choices fix effort and retain only compatible inherited options", () => {
   const data = fixture();
-  const cases = [["XL", "opus", "claude_xinya", "xhigh"], ["XL", "sonnet", "claude_xinya", "max"], ["ES", "opus", "claude_eol", "xhigh"], ["ES", "sonnet", "claude_eol", "max"], ["ARA", "opus", "claudeAgent", "xhigh"], ["ARA", "sonnet", "claudeAgent", "max"], ["AD", "sol", "codex_antoine", "max"], ["AD", "astra", "codex_antoine", "high"], ["SL", "sol", "codex", "max"], ["SL", "astra", "codex", "high"], ["DS", "flash", "deepseek_codex", "max"]];
+  const cases = [["XL", "opus", "claude_xinya", "xhigh"], ["XL", "sonnet", "claude_xinya", "max"], ["ES", "opus", "claude_eol", "xhigh"], ["ES", "sonnet", "claude_eol", "max"], ["ARA", "opus", "claudeAgent", "xhigh"], ["ARA", "sonnet", "claudeAgent", "max"], ["XY", "opus", "claude_xiyang", "xhigh"], ["XY", "sonnet", "claude_xiyang", "max"], ["AC", "opus", "claude_antoine", "xhigh"], ["AC", "sonnet", "claude_antoine", "max"], ["AD", "sol", "codex_antoine", "max"], ["AD", "astra", "codex_antoine", "high"], ["SL", "sol", "codex", "max"], ["SL", "astra", "codex", "high"], ["DS", "flash", "deepseek_codex", "max"]];
   for (const [provider, model, instanceId, effort] of cases) {
     const plan = planFork(data.shell, data.config, { ...data.input, provider, model });
     assert.equal(plan.modelSelection.instanceId, instanceId);

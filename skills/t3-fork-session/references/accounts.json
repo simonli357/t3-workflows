@@ -24,6 +24,22 @@
         "sonnet"
       ]
     },
+    "XY": {
+      "instanceId": "claude_xiyang",
+      "base": "xy_base",
+      "models": [
+        "opus",
+        "sonnet"
+      ]
+    },
+    "AC": {
+      "instanceId": "claude_antoine",
+      "base": "ac_base",
+      "models": [
+        "opus",
+        "sonnet"
+      ]
+    },
     "AD": {
       "instanceId": "codex_antoine",
       "base": "ad_base",
