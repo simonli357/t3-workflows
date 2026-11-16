@@ -35,6 +35,10 @@ order and its margin, hard caps, daily goals, `fableWorkers`, the ladder, the
 fallback, table entries (`showTable` returns one) and how long a limited worker
 waits before changing model. Change it only when the user asks.
 
-"Only Fable workers" (Fable mode) is `fableOnly: true`: every worker runs on
-Fable low, medium or high and only those stand in; a pinned model is kept. It
-turns `fableWorkers` on, and `fableWorkers: false` turns it off.
+Fable mode is per Claude account: `fableAccounts` is the whole list of accounts
+in it, by alias or instance ID (`["XY"]` for only XY, `["XL", "ARA"]` for XL and
+ARA, `[]` for none). A worker on one of them runs Fable low, medium or high,
+only those stand in, and the account is out while its Fable limit is used up; a
+worker on any other account gets the table's choice, and each account is judged
+on what it would run. A pinned model is kept. Turning an account on turns
+`fableWorkers` on, and `fableWorkers: false` empties the list.
