@@ -18,10 +18,11 @@ the managed worker tools below, never `delegate_task` or an unmanaged session.
    moderate, 7 demanding, 8 very demanding, 9 extreme), and the job's length in
    `hours`. The server picks account, model and effort. Pin one only when the
    user named it for this worker. A fork keeps its source's account and model.
-3. **Computer.** Use the one the user named. Otherwise `t3_recommend_computer`
-   with `projectId` gives each computer's load numbers and the project's ID
-   there: choose from those, what the task needs and where its data is. Check
-   heavy work on the chosen computer with `workenv capacity` first.
+3. **Computer.** Do not choose one. Omit `environmentId` and give your own
+   computer's `projectId`: the server picks the computer with the most room
+   that has the project, and the result names it in `computer`. Give
+   `environmentId` (an ID or label) only when the user named a computer or the
+   work needs one, for its data or its hardware.
 4. **Prompt.** Assign a whole outcome, not single steps: "review, attempt and
    verify R1a" is one assignment and one report. Keep the task intact, with issue
    repository/number, acceptance criteria and the user's constraints, and give the
@@ -43,8 +44,7 @@ no owner ID or mode fields.
 {
   "assignmentId": "stable-assignment-id",
   "threadId": "stable-destination-thread-id",
-  "environmentId": "chosen-computer-environment-id",
-  "projectId": "target-project-id",
+  "projectId": "this-computers-project-id",
   "title": "c344_camera",
   "prompt": "complete assignment text",
   "difficulty": 7,
@@ -53,8 +53,7 @@ no owner ID or mode fields.
 }
 ```
 
-`t3w environment` prints this computer's `environmentId`. `state: "drained"`
-means all is out until `drainedUntil`: report it, do not work around it. Pins:
+`state: "drained"` means all is out until `drainedUntil`: report it, do not work around it. Pins:
 [selection-policy.md](references/selection-policy.md).
 
 **Fork:** plan it, then pass the printed JSON unchanged to `t3_worker_spawn`.
