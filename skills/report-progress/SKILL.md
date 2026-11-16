@@ -22,6 +22,13 @@ conversation, the handoff it started from, and the task list in the state file),
 in the user's own short wording, including ones given in passing. Keep finished
 tasks on the list until they have been reported as done once.
 
+A task is a result the user wants to have: something built, fixed, measured,
+recorded, written or delivered. An instruction about how to do the work is not a
+task and never gets a row or a line of its own: which account, model, effort or
+worker to use, where files go, rules of conduct, a pause or a resume, a question
+already answered. Follow such instructions silently. Mention one only where it
+explains a task's status (for example "paused by you").
+
 ## 3. Collect the facts now
 
 Do not answer from memory; check each item you will state.
