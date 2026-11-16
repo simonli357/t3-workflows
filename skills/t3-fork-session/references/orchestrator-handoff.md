@@ -74,7 +74,8 @@ You are <successor title> (<successor ID>), the new master, taking over from
 
 Objective: the user's goal in their words, and what finished means.
 Standing instructions, only as the user gave them: permissions, approvals needed,
-  account/budget rules with expiry, anything the user ruled out.
+  account/budget rules with expiry (a worker pin ends 24 hours after he gave it:
+  state that time, drop it if it has passed), anything the user ruled out.
 Decisions so far, with reasons, so they are not reopened.
 Workers, one line each: title, ID, environment, account/model, assignment, state,
   next check.

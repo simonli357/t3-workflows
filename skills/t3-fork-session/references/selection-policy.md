@@ -12,6 +12,24 @@ the same choice without starting anything:
 
 Preserve every pin on retries.
 
+## A pin ends after 24 hours
+
+A pin is for the worker the user named. When he gives a choice for more than
+one worker ("change the ES workers to XY Fable", "use ARA from now on", "only
+Opus"), it covers the workers he named and new starts for at most 24 hours from
+his message. This holds for account, model, effort and computer.
+
+- Note the time he said it, and name the pin and its end in your report each
+  time you start a worker under it.
+- After 24 hours stop pinning and let the server choose. Tell him in one line
+  the first time. Never extend a pin yourself, and do not ask him to renew it.
+- When unsure whether his words cover a new worker, do not pin.
+- A choice that should last belongs in the allocation policy (order, goals,
+  caps, Fable accounts), where he can see and change it: offer that instead of
+  keeping a pin.
+- In a handoff, pass a pin with the time it was given and when it ends. Never
+  pass one that has ended.
+
 ## How the server chooses
 
 The table gives a model and effort for the scores. Each account's limits are

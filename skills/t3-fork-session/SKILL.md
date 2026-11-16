@@ -17,7 +17,10 @@ the managed worker tools below, never `delegate_task` or an unmanaged session.
 2. **Scores.** Give `difficulty` and `stakes`, integers 0-10 (0-3 routine, 4-6
    moderate, 7 demanding, 8 very demanding, 9 extreme), and the job's length in
    `hours`. The server picks account, model and effort. Pin one only when the
-   user named it for this worker. A fork keeps its source's account and model.
+   user named it for this worker. A choice the user gave for several workers
+   ("use XY from now on") ends 24 hours after he gave it: then stop pinning,
+   see [selection-policy.md](references/selection-policy.md). A fork keeps its
+   source's account and model.
 3. **Computer.** Do not choose one. Omit `environmentId` and give your own
    computer's `projectId`: the server picks the computer with the most room
    that has the project, and the result names it in `computer`. Give
