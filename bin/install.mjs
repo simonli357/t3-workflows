@@ -4,6 +4,7 @@ import { homedir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { settings, expandPath } from "../skills/t3-fork-session/scripts/config.mjs";
+import { applySharedSettings } from "./shared-settings.mjs";
 const check = process.argv.includes("--check");
 const root = fileURLToPath(new URL("..", import.meta.url));
 const home = homedir();
@@ -43,4 +44,8 @@ if (process.platform === "win32") {
   if(!check) chmodSync(path.join(root,"bin","t3w.mjs"),0o755);
   link(path.join(bin,"t3w"),path.join(root,"bin","t3w.mjs"),false);
 }
+const t3Settings = path.join(process.env.T3CODE_HOME ?? settings.connection?.home ?? path.join(home, ".t3"), "userdata", "settings.json");
+const sharedKeys = applySharedSettings(path.join(root, "shared-settings.json"), t3Settings, { check });
+if (check && sharedKeys.length) throw new Error(`Stale shared settings in ${t3Settings}: ${sharedKeys.join(", ")}`);
+if (sharedKeys.length) console.log(`Updated shared settings in ${t3Settings}: ${sharedKeys.join(", ")}`);
 console.log("Global skill and command verified. New sessions discover the installation.");

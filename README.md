@@ -14,6 +14,8 @@ t3w refresh-bases --project scandy --apply
 t3w update
 ```
 
+`shared-settings.json` holds the T3 settings every install shares, such as the instructions sent to all sessions. `t3w update` (and `node bin/install.mjs`) sets exactly those keys in the computer's T3 `settings.json` and leaves the rest alone; the running server picks the change up without a restart. Change shared values here, not in T3 Settings, where the next update would replace them.
+
 `spawn` creates a fresh session without a base; `fork` inherits context from a configured base or `--source-thread UUID`. Both accept the session helper's options (`spawn` adds `--fresh`). Inside T3, use `--mcp-plan` and pass the result to `t3_worker_spawn` for managed ownership, reports and follow-ups. Managed fresh creation requires a server advertising `workerFreshSessions`; the planner checks this before returning input. Global installation does not replace the server's custom worker tools. They run on the custom stable build; preserve their behavior when integrating selected upstream changes.
 
 ```sh
