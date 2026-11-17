@@ -90,7 +90,7 @@ export function standardServiceUnit(base, version) {
     '[Service]', 'Type=simple', 'WorkingDirectory=%h', `Environment=T3CODE_HOME=${quote(base)}`,
     'Environment=T3_BOOT_SERVICE_UNIT=t3code.service', `ExecStart=${quote(path.join(base, 'runtime/versions', version, 't3'))} __service-launcher`,
     'KillMode=mixed', 'OOMPolicy=continue', 'Restart=always', 'RestartSec=5', 'CPUWeight=1000', 'IOWeight=1000',
-    'ManagedOOMPreference=avoid', `StandardOutput=append:${log}`, `StandardError=append:${log}`, '', '[Install]', 'WantedBy=default.target', ''].join('\n');
+    'ManagedOOMPreference=avoid', 'OOMScoreAdjust=100', `StandardOutput=append:${log}`, `StandardError=append:${log}`, '', '[Install]', 'WantedBy=default.target', ''].join('\n');
 }
 export function isStandardServiceUnit(text, base, version) {
   const standard = standardServiceUnit(base, version);
@@ -98,7 +98,9 @@ export function isStandardServiceUnit(text, base, version) {
   // Older release.py quoted even a simple executable path. Accept exactly that
   // rendering; retain strict comparison for every other service setting.
   const legacy = standard.replace(`ExecStart=${executable} __service-launcher`, `ExecStart="${executable}" __service-launcher`);
-  return text === standard || text === legacy;
+  // Runtimes before the server set its own OOM score wrote the unit without that line.
+  const withoutOomScore = unit => unit.replace('OOMScoreAdjust=100\n', '');
+  return [standard, legacy, withoutOomScore(standard), withoutOomScore(legacy)].includes(text);
 }
 export function run(executable, args, options = {}) {
   const { acceptedExitCodes = [], ...execution } = options;

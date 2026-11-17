@@ -277,3 +277,12 @@ test('legacy service executable quoting preserves strict unit validation', () =>
   assert.ok(isStandardServiceUnit(quoted, base, version));
   assert.equal(isStandardServiceUnit(quoted.replace('KillMode=mixed', 'KillMode=control-group'), base, version), false);
 });
+
+test('the service unit makes the server the last T3 process the kernel kills', () => {
+  const base = '/home/test/.t3', version = '0.0.45+custom.52';
+  const standard = standardServiceUnit(base, version);
+  assert.match(standard, /^OOMScoreAdjust=100$/m);
+  // A unit written by an earlier runtime is still the standard one, so the installer may replace it.
+  assert.ok(isStandardServiceUnit(standard.replace('OOMScoreAdjust=100\n', ''), base, version));
+  assert.equal(isStandardServiceUnit(standard.replace('OOMScoreAdjust=100', 'OOMScoreAdjust=900'), base, version), false);
+});
