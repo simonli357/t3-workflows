@@ -602,6 +602,29 @@ class Isolated:
     running = alive
 
 
+def release_unit(text, runtime):
+    """The service unit for `runtime`: the given unit with its launcher moved and, when its
+    [Service] section sets no OOM score, the standard one. Its other settings stay."""
+    program = str(runtime / 't3')
+    launcher = re.search(r'^ExecStart=(.+) __service-launcher$', text, flags=re.M)
+    # Going back to the runtime the saved unit names restores that unit as it was.
+    if launcher.group(1) in (program, json.dumps(program)):
+        return text
+    unit = text[:launcher.start()] + 'ExecStart=' + json.dumps(program) + ' __service-launcher' + text[launcher.end():]
+    # Agents run at 800 and systemd leaves a user service at 200. 100 is the lowest a user unit
+    # can get, so the kernel kills the server last. A unit that sets its own score keeps it.
+    start = re.search(r'^\[Service\]\s*$', unit, flags=re.M).end()
+    following = re.search(r'^\[', unit[start:], flags=re.M)
+    end = start + following.start() if following else len(unit)
+    service = unit[start:end]
+    if re.search(r'^OOMScoreAdjust=', service, flags=re.M):
+        return unit
+    # Where the installer writes it, so the result is the standard unit.
+    after = re.search(r'^ManagedOOMPreference=.*$', service, flags=re.M) or re.search(r'^ExecStart=.*$', service, flags=re.M)
+    at = start + after.end()
+    return unit[:at] + '\nOOMScoreAdjust=100' + unit[at:]
+
+
 class Linux:
     hint = 'systemctl --user start t3code.service'
 
@@ -635,9 +658,7 @@ class Linux:
             raise RuntimeError('Port is still occupied; no processes killed')
 
     def start(self, runtime):
-        # Retain the unit's other settings and every drop-in; move its exact launcher.
-        entry = json.dumps(str(runtime / 't3')) + ' __service-launcher'
-        unit = re.sub(r'^ExecStart=.+ __service-launcher$', lambda _: 'ExecStart=' + entry, self.unit_text, flags=re.M)
+        unit = release_unit(self.unit_text, runtime)
         temporary_unit = self.unit_file.with_name(self.unit_file.name + '.release-' + uuid.uuid4().hex)
         temporary_unit.write_text(unit)
         temporary_unit.replace(self.unit_file)

@@ -652,6 +652,32 @@ class ReleaseTests(unittest.TestCase):
         self.assertIn('CPUWeight=1000\nKillMode=mixed', unit)
         self.assertIn('ExecStart="' + str(target / 't3') + '" __service-launcher', unit)
 
+    UNIT = ('[Unit]\nDescription=T3 Code server\n\n[Service]\nType=simple\n'
+            'ExecStart="/home/t/.t3/runtime/versions/1/t3" __service-launcher\nKillMode=mixed\n'
+            'ManagedOOMPreference=avoid\nStandardOutput=append:/log\n\n[Install]\nWantedBy=default.target\n')
+
+    def test_release_gives_a_unit_without_an_oom_score_the_standard_one(self):
+        unit = release.release_unit(self.UNIT, Path('/home/t/.t3/runtime/versions/2'))
+        self.assertEqual(unit, self.UNIT.replace('versions/1/t3', 'versions/2/t3').replace(
+            'ManagedOOMPreference=avoid\n', 'ManagedOOMPreference=avoid\nOOMScoreAdjust=100\n'))
+        # Without the line it follows the launcher, still inside [Service].
+        bare = self.UNIT.replace('ManagedOOMPreference=avoid\n', '')
+        self.assertIn('t3" __service-launcher\nOOMScoreAdjust=100\nKillMode=mixed',
+                      release.release_unit(bare, Path('/home/t/.t3/runtime/versions/2')))
+
+    def test_release_keeps_an_oom_score_the_unit_already_sets(self):
+        own = self.UNIT.replace('KillMode=mixed\n', 'KillMode=mixed\nOOMScoreAdjust=300\n')
+        unit = release.release_unit(own, Path('/home/t/.t3/runtime/versions/2'))
+        self.assertEqual(unit, own.replace('versions/1/t3', 'versions/2/t3'))
+        # A score in another section is not the service's.
+        elsewhere = self.UNIT + 'OOMScoreAdjust=300\n'
+        self.assertIn('ManagedOOMPreference=avoid\nOOMScoreAdjust=100\n',
+                      release.release_unit(elsewhere, Path('/home/t/.t3/runtime/versions/2')))
+
+    def test_rollback_restores_the_saved_unit_unchanged(self):
+        for saved in [self.UNIT, self.UNIT.replace('"/home/t/.t3/runtime/versions/1/t3"', '/home/t/.t3/runtime/versions/1/t3')]:
+            self.assertEqual(release.release_unit(saved, Path('/home/t/.t3/runtime/versions/1')), saved)
+
 
 if __name__ == '__main__':
     unittest.main()
