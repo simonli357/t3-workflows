@@ -35,7 +35,8 @@ his message. This holds for account, model, effort and computer.
 The table gives a model and effort for the scores. Each account's limits are
 projected to the job's end (learned costs, every working session on the login,
 outside use). Of accounts lasting the job, the one furthest behind its daily
-goal leads; close ones on the same side follow the order. Only a
+goal (its Fable goal on its Fable limit) leads; close ones on the same side
+follow the order. Only a
 used-up window, a provider rejection or a hard cap stops an account. Fitting
 nowhere, a start waits for a reset within 30 minutes (45 at stakes 8+), else
 takes the nearest rung that fits (two at most), else the fallback, else the
@@ -49,14 +50,19 @@ account and model.
 
 `t3_allocation_policy` with no fields reads it. `account` is the alias or
 instance ID and covers that login on every computer. It sets the preference
-order and its margin, hard caps, daily goals, `fableWorkers`, the ladder, the
-fallback, table entries (`showTable` returns one) and how long a limited worker
-waits before changing model. Change it only when the user asks.
+order and its margin, hard caps, daily goals, Fable goals, `fableWorkers`, the
+ladder, the fallback, table entries (`showTable` returns one) and how long a
+limited worker waits before changing model. Change it only when the user asks.
 
 Fable mode is per Claude account: `fableAccounts` is the whole list of accounts
-in it, by alias or instance ID (`["XY"]` for only XY, `["XL", "ARA"]` for XL and
-ARA, `[]` for none). A worker on one of them runs Fable low, medium or high,
-only those stand in, and the account is out while its Fable limit is used up; a
-worker on any other account gets the table's choice, and each account is judged
-on what it would run. A pinned model is kept. Turning an account on turns
-`fableWorkers` on, and `fableWorkers: false` empties the list.
+always in it, by alias or instance ID (`["XY"]` for only XY, `["XL", "ARA"]` for
+XL and ARA, `[]` for none). A worker on one of them runs Fable low, medium or
+high, only those stand in, and the account is out while its Fable limit is used
+up. A Fable goal (`setFableGoals: [{account: "ARA", percentPerDay: 14}]`, percent
+of the Fable limit a day; `clearFableGoals` removes it) also puts an account in
+Fable mode for an unpinned worker when it would end the job at or behind that
+line on Fable and Fable fits there; ahead of it, the account runs the table's
+choice. A worker on any other account gets the table's choice, and each account
+is judged on what it would run. A pinned model is kept. Turning an account on
+turns `fableWorkers` on, and `fableWorkers: false` empties the list and turns
+off what a Fable goal would turn on.

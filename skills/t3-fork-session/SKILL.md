@@ -89,8 +89,8 @@ A standing preference is set once with `t3_allocation_policy`, never per start.
 | "prefer ES, then XL"     | `accountOrder: ["ES", "XL"]`                                                                                  |
 | "stop AD workers at 90%" | `setCaps: [{account: "AD", weeklyPercent: 90, fiveHourPercent: null, stopWorkers: true, stopMasters: false}]` |
 
-The account furthest behind its daily goal (`setGoals`) wins; between close
-ones, the order decides. A pinned account over its goal still starts. "Never XL"
+The account furthest behind its daily goal (`setGoals`; on its Fable limit, its
+Fable goal `setFableGoals`) wins; between close ones, the order decides. A pinned account over its goal still starts. "Never XL"
 is that account's workers switch in Settings; ask the user.
 
 ## Send a correction
