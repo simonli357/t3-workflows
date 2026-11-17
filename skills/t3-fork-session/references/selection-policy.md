@@ -34,8 +34,8 @@ his message. This holds for account, model, effort and computer.
 
 The table gives a model and effort for the scores. Each account's limits are
 projected to the job's end (learned costs, every working session on the login,
-outside use). Accounts that last the job within their daily goal lead, by most
-room until the tightest reset; close ones follow the preference order. Only a
+outside use). Of accounts that last the job, the one furthest behind its daily
+goal, in points, leads; close ones follow the preference order. Only a
 used-up window, a provider rejection or a hard cap stops an account. Fitting
 nowhere, a start waits for a reset within 30 minutes (45 at stakes 8+), else
 takes the nearest rung that fits (two at most), else the fallback, else the
