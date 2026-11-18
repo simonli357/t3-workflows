@@ -37,8 +37,11 @@ the managed worker tools below, never `delegate_task` or an unmanaged session.
 
    Masters follow the same limit.
 5. **IDs.** Generate the destination thread UUID (`node -p 'crypto.randomUUID()'`)
-   and assignment ID once. After a failure or lost response, retry the entire
-   original input unchanged; the receipt prevents duplicate work.
+   and assignment ID once. After a lost response or an error that says
+   something is unavailable or unconfirmed, retry the entire original input
+   unchanged; the receipt prevents duplicate work. When the error says the
+   assignment is finished, an unchanged retry can never start: fix the stated
+   cause, then start again with a new assignment ID and thread ID.
 
 **Fresh:** call `t3_start_allocated_assignment`. Modes come from the master; supply
 no owner ID or mode fields.
