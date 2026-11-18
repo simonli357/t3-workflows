@@ -8,7 +8,9 @@ the same choice without starting anything:
 - Account: `account`, its instance ID. Exact: drained there means refused.
 - Model: `model`, the model ID, with the table's effort; add `effort` to pin that
   too. A pinned model that is drained everywhere is replaced like any other.
-- Codex: `driver: "codex"`, only when the user asked for Codex.
+- Provider family: `driver` (`"claudeAgent"` or `"codex"`), only when the user
+  asked for that family. Without it the server ranks Claude and Codex accounts
+  together, so never add it to steer the choice yourself.
 
 Preserve every pin on retries.
 
@@ -40,7 +42,12 @@ follow the order. Only a
 used-up window, a provider rejection or a hard cap stops an account. Fitting
 nowhere, a start waits for a reset within 30 minutes (45 at stakes 8+), else
 takes the nearest rung that fits (two at most), else the fallback, else the
-account lasting longest. Codex never changes model.
+account lasting longest. A Codex account never changes model.
+
+Without `driver`, every Claude and Codex account that is on for workers is in
+that one ranking, each judged on its own family's table entry; each account
+line names the model it was judged on. An account is kept out with its workers
+switch in Provider allocation settings.
 
 Never retune the policy, clear errors, redeem reset credits or start test turns
 to make an account usable. Forks, moves, follow-ups and handoffs keep their
