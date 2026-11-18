@@ -108,3 +108,14 @@ test("saved project initialization prompt supplies refresh unless explicitly ove
  const f=fixture();f.shell.projects[0].basePrompt="Read project conventions";
  assert.equal(f.plan().prompt,"Read project conventions");
 });
+
+test("a base on an earlier version of its model refreshes onto the alias's current model; another model stops", () => {
+  const base = (model) => ({ id: "old-ad", title: "ad_base", projectId: "control", modelSelection: { instanceId: "codex_antoine", model, options: [{ id: "reasoningEffort", value: "high" }] }, runtimeMode: "full-access", interactionMode: "default", branch: "main", worktreePath: null, latestTurn: { turnId: "t", state: "completed" }, messages: [] });
+  const efforts = { optionDescriptors: [{ id: "reasoningEffort", type: "select", options: [{ id: "high" }, { id: "max" }] }] };
+  const config = { providers: [{ instanceId: "codex_antoine", enabled: true, installed: true, models: [{ slug: "gpt-6.2-astra", capabilities: efforts }, { slug: "gpt-6.2-sol", capabilities: efforts }] }] };
+  const plan = (model) => planRefresh({ projects: [{ id: "control", title: "SControl", workspaceRoot: "/control" }], threads: [base(model)] }, config, { project: "/control", providers: ["AD"] })[0];
+  assert.equal(plan("gpt-6-astra").modelSelection.model, "gpt-6.2-astra");
+  assert.equal(plan("gpt-6-astra").oldSelection.model, "gpt-6-astra");
+  assert.equal(plan("gpt-6.1-sol").modelSelection.model, "gpt-6.2-sol");
+  assert.throws(() => plan("gpt-6-luna"), /unsupported model: gpt-6-luna/);
+});

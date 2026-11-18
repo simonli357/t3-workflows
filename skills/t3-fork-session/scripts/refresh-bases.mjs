@@ -11,6 +11,7 @@ import { resolveProject, baseFor, projectProfile } from "./config.mjs";
 export const BASE_PROMPT = "understand project";
 const ensure = (condition, message) => { if (!condition) throw new Error(message); };
 const idle = (thread) => !thread.session?.activeTurnId && thread.session?.status !== "starting" && thread.latestTurn?.state !== "running" && !thread.backgroundLiveness;
+const modelName = (slug) => slug.split("-").filter((word) => !/^\d+(\.\d+)?$/.test(word)).join("-");
 const selectionKey = (selection) => JSON.stringify({ ...selection, options: [...(selection.options ?? [])].sort((a, b) => a.id.localeCompare(b.id)) });
 
 export function planRefresh(shell, config, { project, providers = Object.keys(PROVIDERS), prompt }) {
@@ -36,7 +37,9 @@ export function planRefresh(shell, config, { project, providers = Object.keys(PR
       runtimeMode: "full-access", interactionMode: "default", branch: "main", worktreePath: null,
     };
     ensure(source.modelSelection.instanceId === profile.instanceId, `${profile.base} uses another account; resolve its settings first.`);
-    const model = profile.models.find((key) => MODELS[key].slug === source.modelSelection.model);
+    // A base prepared on an earlier version of an alias's model ("gpt-6-astra" for "gpt-6.2-astra") moves to the current one.
+    const model = profile.models.find((key) => MODELS[key].slug === source.modelSelection.model)
+      ?? profile.models.find((key) => modelName(MODELS[key].slug) === modelName(source.modelSelection.model));
     ensure(model, `${profile.base} uses an unsupported model: ${source.modelSelection.model}.`);
     const threadId = pending[0]?.id ?? randomUUID();
     const plan = planFork({ ...shell, threads: [{ ...source, id: "refresh-template", title: profile.base }, ...shell.threads.filter((t) => t.id !== old?.id)] }, config, {
