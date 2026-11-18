@@ -66,12 +66,12 @@
   },
   "models": {
     "sol": {
-      "slug": "gpt-6.1-sol",
+      "slug": "gpt-6.2-sol",
       "option": "reasoningEffort",
       "effort": "max"
     },
     "astra": {
-      "slug": "gpt-6-astra",
+      "slug": "gpt-6.2-astra",
       "option": "reasoningEffort",
       "effort": "high"
     },

@@ -71,7 +71,7 @@ test("all account/model choices fix effort and retain only compatible inherited 
     assert.equal(plan.modelSelection.options.some((o) => o.id === "contextWindow"), model === "opus" || model === "sonnet");
     assert.equal(plan.sourceThreadId, data.shell.threads.find((t) => t.title === `${provider.toLowerCase()}_base`).id);
   }
-  assert.equal(planFork(data.shell, data.config, { ...data.input, model: "gpt-6.1-sol", name: "User chosen title" }).name, "User chosen title");
+  assert.equal(planFork(data.shell, data.config, { ...data.input, model: "gpt-6.2-sol", name: "User chosen title" }).name, "User chosen title");
 });
 
 test("invalid choices, unavailable effort, missing or ambiguous bases cannot fork", async () => {
@@ -96,7 +96,7 @@ test("invalid choices, unavailable effort, missing or ambiguous bases cannot for
 test("dry-run checks the selection without creating or assigning work", async () => {
   const data = fixture(); const client = new FakeClient(data);
   const result = await runFork(client, { ...data.input, dryRun: true });
-  assert.equal(result.modelSelection.model, "gpt-6.1-sol");
+  assert.equal(result.modelSelection.model, "gpt-6.2-sol");
   assert.deepEqual(client.calls, []);
   assert.equal(data.shell.threads.length, Object.keys(PROVIDERS).length);
 });
