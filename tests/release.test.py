@@ -484,6 +484,8 @@ class ReleaseTests(unittest.TestCase):
                 if case == 'rollback':
                     self.assertEqual(message, 'Health check failed; rolled back to old: unhealthy')
                     self.assertEqual(Server.events, ['start old', 'stop', 'start new', 'stop', 'start old', 'stop'])
+                    # The same commit can be released again.
+                    self.assertFalse((home / 'runtime/versions/new').exists())
                 else:
                     self.assertRegex(message, 'Release aborted before the switch; old is running: ')
                     # A stopped old server is started again; one that never stopped is left alone.

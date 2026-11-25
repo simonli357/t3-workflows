@@ -861,6 +861,8 @@ def activate(args, built, job, rehearsal):
                     running = down = 'Health check failed; rolled back to ' + previous_version
                     health(args.port, previous_version, min(args.health_seconds, 10), args.stall_ms, {}, controller.alive,
                            args.ready_seconds, unresponsive_seconds=args.unresponsive_seconds)
+                    # The old version is confirmed: drop the staged copy so the same commit can be released again.
+                    shutil.rmtree(staged, ignore_errors=True)
                     settled = True
             if not settled:
                 print('Schema only moves forward: no rollback; the installed version stays up.', flush=True)
