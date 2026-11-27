@@ -66,6 +66,24 @@ def clean_env():
             if not k.startswith(('T3', 'VITE_', 'ELECTRON_'))}
 
 
+def normal_priority():
+    """A scheduled task runs at low CPU, memory and disk priority, and the desktop it launches inherits them:
+    Windows then pages the server out and its database reads take minutes. Run this process, and so the build
+    and the app, at the priority of a program started from the desktop."""
+    import ctypes
+    from ctypes import wintypes
+    kernel, nt = ctypes.WinDLL('kernel32'), ctypes.WinDLL('ntdll')
+    kernel.GetCurrentProcess.restype = wintypes.HANDLE
+    kernel.SetPriorityClass.argtypes = [wintypes.HANDLE, wintypes.DWORD]
+    kernel.SetProcessInformation.argtypes = [wintypes.HANDLE, ctypes.c_int, ctypes.c_void_p, wintypes.DWORD]
+    nt.NtSetInformationProcess.argtypes = [wintypes.HANDLE, ctypes.c_int, ctypes.c_void_p, wintypes.ULONG]
+    me = kernel.GetCurrentProcess()
+    memory, disk = ctypes.c_ulong(5), ctypes.c_ulong(2)  # MEMORY_PRIORITY_NORMAL, IoPriorityNormal
+    kernel.SetPriorityClass(me, 0x20)  # NORMAL_PRIORITY_CLASS
+    kernel.SetProcessInformation(me, 0, ctypes.byref(memory), 4)  # ProcessMemoryPriority
+    nt.NtSetInformationProcess(me, 33, ctypes.byref(disk), 4)  # ProcessIoPriority
+
+
 @contextmanager
 def database(path):
     db = sqlite3.connect(Path(path).resolve().as_uri() + '?mode=ro', uri=True, timeout=10)
@@ -1151,6 +1169,8 @@ def parser():
 
 def main(argv=None):
     args = parser().parse_args(argv)
+    if WINDOWS:
+        normal_priority()
     args.ref = args.ref or (V2_LINE if args.line == 'v2' else 'origin/main')
     if args.mode == 'switchover' and args.line != 'v2':
         args.line = 'v2'
