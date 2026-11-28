@@ -257,6 +257,12 @@ test("fresh plans reject conflicting sources, unsupported servers and unavailabl
   assert.throws(() => planFork(data.shell, data.config, { ...data.input, fresh: true }), /disabled or unavailable/);
 });
 
+test("an account that does not offer the model names the models it does offer", () => {
+  const data = fixture();
+  data.config.providers.find((p) => p.instanceId === "codex").models = [{ slug: "gpt-6-luna", capabilities: {} }, { slug: "gpt-5.6-terra", capabilities: {} }];
+  assert.throws(() => planFork(data.shell, data.config, data.input), /SL does not offer gpt-6\.2-sol; it offers gpt-6-luna, gpt-5\.6-terra\./);
+});
+
 test("standalone fresh sessions start with only their task and safely reuse interrupted creation or assignment", async () => {
   for (const failure of [null, "failCreate", "failDispatch"]) {
     const data = fixture();

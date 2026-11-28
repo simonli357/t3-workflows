@@ -61,7 +61,8 @@ export function planFork(shell, config, input) {
   const provider = single(config.providers.filter((p) => p.instanceId === choice.instanceId), `configured ${providerName} provider`);
   requireValue(provider.enabled && provider.installed && provider.availability !== "unavailable", `Provider ${providerName} is disabled or unavailable.`);
   const profile = MODELS[modelName];
-  const model = single(provider.models.filter((m) => m.slug === profile.slug), `${profile.slug} model for ${providerName}`);
+  const model = provider.models.find((m) => m.slug === profile.slug);
+  requireValue(model, `${providerName} does not offer ${profile.slug}; it offers ${provider.models.map((m) => m.slug).join(", ") || "no models"}. Its sign-in may have lost the plan that includes it.`);
   const descriptors = model.capabilities?.optionDescriptors ?? [];
   const chosenEffort = input.effort ?? profile.effort;
   const effort = descriptors.find((d) => d.id === profile.option);
